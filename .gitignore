@@ -1,0 +1,11 @@
+.DS_Store
+*.log
+
+build/bin/
+dist/
+frontend/dist/
+frontend/node_modules/
+
+# Design notes and screenshots used during local development.
+tmp/
+welcome-feedback.png

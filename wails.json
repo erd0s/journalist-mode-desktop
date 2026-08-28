@@ -1,0 +1,20 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "Journalist Mode",
+  "outputfilename": "Journalist Mode",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "erd0s",
+    "email": "dirk@dirkdirk.com"
+  },
+  "info": {
+    "companyName": "Dirk Stewart",
+    "productName": "Journalist Mode",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright © 2026 Dirk Stewart",
+    "comments": "A plain-text workspace for parallel streams of thought."
+  }
+}
