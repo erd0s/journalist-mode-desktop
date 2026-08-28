@@ -6,6 +6,8 @@ export function ChooseStorageDirectory():Promise<string>;
 
 export function CreateDay(arg1:string):Promise<main.DayData>;
 
+export function CreateDoingStream(arg1:string):Promise<main.JournalFile>;
+
 export function CreateToday():Promise<main.DayData>;
 
 export function GetLaunchDate():Promise<string>;
@@ -16,11 +18,7 @@ export function ListDays():Promise<Array<main.DaySummary>>;
 
 export function OpenDay(arg1:string):Promise<main.DayData>;
 
-export function OpenDayPicker():Promise<void>;
-
 export function OpenDayWindow(arg1:string):Promise<string>;
-
-export function OpenNewWindow():Promise<void>;
 
 export function ReadJournalFiles(arg1:Array<string>):Promise<Array<main.JournalFile>>;
 

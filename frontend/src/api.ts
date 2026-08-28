@@ -1,5 +1,6 @@
 import {
     ChooseStorageDirectory as nativeChooseStorageDirectory,
+    CreateDoingStream as nativeCreateDoingStream,
     CreateToday as nativeCreateToday,
     GetLaunchDate as nativeGetLaunchDate,
     GetSettings as nativeGetSettings,
@@ -117,6 +118,30 @@ export const appAPI = {
 
     async openDayWindow(date: string): Promise<string> {
         return isNative() ? nativeOpenDayWindow(date) : 'opened';
+    },
+
+    async createDoingStream(date: string): Promise<JournalFile> {
+        if (isNative()) {
+            return nativeCreateDoingStream(date);
+        }
+        const highestIndex = mockDay.doing.reduce(
+            (highest, file) => Math.max(highest, file.streamIndex),
+            0,
+        );
+        const streamIndex = highestIndex + 1;
+        const name = streamIndex === 1
+            ? `${date}.jm.md`
+            : `${date}_${streamIndex}.jm.md`;
+        const file = new main.JournalFile({
+            path: `/preview/Doing/${name}`,
+            name,
+            content: '',
+            exists: true,
+            streamIndex,
+        });
+        mockDay.doing.push(file);
+        mockDisk.set(file.path, '');
+        return new main.JournalFile(file);
     },
 
     async readJournalFiles(paths: string[]): Promise<JournalFile[]> {

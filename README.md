@@ -43,8 +43,9 @@ The app does not sort Todo entries or provide file synchronization.
 | `Command-Shift-C` | Copy Todo text without its date or completion markers |
 | `Command-Shift-H` | Toggle the focused Doing pane between active work and full history |
 | `Command-S` | Save every pane in the current window |
-| `Command-O` | Open the day picker |
-| `Command-N` | Open another window |
+| `Command-O` or `Command-N` | Show the day picker in the current window |
+| `Command-T` | Create and focus the next numbered Doing stream |
+| `Command-1` … `Command-9` | Focus Todo, then the first eight open Doing streams |
 | `Command-,` | Open Settings |
 
 ## Install a release

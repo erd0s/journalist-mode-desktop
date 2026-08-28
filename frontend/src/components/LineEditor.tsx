@@ -29,6 +29,7 @@ type LineEditorProps = {
     onChange: (lines: string[]) => void;
     onFocus?: () => void;
     onToggleCompleted?: () => void;
+    focusRequest?: number;
 };
 
 const externalDocumentUpdate = Annotation.define<boolean>();
@@ -40,6 +41,7 @@ export function LineEditor({
     onChange,
     onFocus,
     onToggleCompleted,
+    focusRequest = 0,
 }: LineEditorProps) {
     const hostRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView>();
@@ -100,7 +102,7 @@ export function LineEditor({
                     Prec.high(keymap.of(journalKeymap(kind, onToggleCompletedRef))),
                     keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap]),
                     completedVisibility.current.of(
-                        completedLineView(kind === 'doing' ? showCompleted : true),
+                        journalLineView(kind, kind === 'doing' ? showCompleted : true),
                     ),
                     EditorView.updateListener.of((update: ViewUpdate) => {
                         const cameFromDisk = update.transactions.some(
@@ -148,10 +150,19 @@ export function LineEditor({
 
         view.dispatch({
             effects: completedVisibility.current.reconfigure(
-                completedLineView(kind === 'doing' ? showCompleted : true),
+                journalLineView(kind, kind === 'doing' ? showCompleted : true),
             ),
         });
     }, [kind, showCompleted]);
+
+    useEffect(() => {
+        const view = viewRef.current;
+        if (!view || focusRequest <= 0) {
+            return;
+        }
+        const frame = window.requestAnimationFrame(() => view.focus());
+        return () => window.cancelAnimationFrame(frame);
+    }, [focusRequest]);
 
     return <div className={`file-editor ${kind}-editor`} ref={hostRef}/>;
 }
@@ -226,17 +237,17 @@ function lineEndOffset(lines: string[], index: number): number {
     return offset + (lines[index]?.length ?? 0);
 }
 
-function completedLineView(showCompleted: boolean) {
+function journalLineView(kind: 'doing' | 'todo', showCompleted: boolean) {
     return ViewPlugin.fromClass(class {
         decorations: DecorationSet;
 
         constructor(view: EditorView) {
-            this.decorations = completedDecorations(view, showCompleted);
+            this.decorations = journalDecorations(view, kind, showCompleted);
         }
 
         update(update: ViewUpdate) {
             if (update.docChanged || update.viewportChanged) {
-                this.decorations = completedDecorations(update.view, showCompleted);
+                this.decorations = journalDecorations(update.view, kind, showCompleted);
             }
         }
     }, {
@@ -244,7 +255,11 @@ function completedLineView(showCompleted: boolean) {
     });
 }
 
-function completedDecorations(view: EditorView, showCompleted: boolean): DecorationSet {
+export function journalDecorations(
+    view: EditorView,
+    kind: 'doing' | 'todo',
+    showCompleted: boolean,
+): DecorationSet {
     const ranges = [];
     for (let number = 1; number <= view.state.doc.lines; number += 1) {
         const line = view.state.doc.line(number);
@@ -254,6 +269,20 @@ function completedDecorations(view: EditorView, showCompleted: boolean): Decorat
             ranges.push(
                 Decoration.mark({class: 'cm-journal-date'}).range(from, from + match[0].length),
             );
+        }
+
+        if (kind === 'todo') {
+            const category = /^(\s*)#\s*(.*)$/.exec(line.text);
+            if (category) {
+                const markerFrom = line.from + category[1].length;
+                const titleFrom = line.to - category[2].length;
+                ranges.push(Decoration.replace({}).range(markerFrom, titleFrom));
+                if (titleFrom < line.to) {
+                    ranges.push(
+                        Decoration.mark({class: 'cm-todo-category'}).range(titleFrom, line.to),
+                    );
+                }
+            }
         }
 
         if (!isCompleted(line.text)) {

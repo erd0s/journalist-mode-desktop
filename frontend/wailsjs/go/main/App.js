@@ -10,6 +10,10 @@ export function CreateDay(arg1) {
   return window['go']['main']['App']['CreateDay'](arg1);
 }
 
+export function CreateDoingStream(arg1) {
+  return window['go']['main']['App']['CreateDoingStream'](arg1);
+}
+
 export function CreateToday() {
   return window['go']['main']['App']['CreateToday']();
 }
@@ -30,16 +34,8 @@ export function OpenDay(arg1) {
   return window['go']['main']['App']['OpenDay'](arg1);
 }
 
-export function OpenDayPicker() {
-  return window['go']['main']['App']['OpenDayPicker']();
-}
-
 export function OpenDayWindow(arg1) {
   return window['go']['main']['App']['OpenDayWindow'](arg1);
-}
-
-export function OpenNewWindow() {
-  return window['go']['main']['App']['OpenNewWindow']();
 }
 
 export function ReadJournalFiles(arg1) {

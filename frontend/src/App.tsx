@@ -7,6 +7,7 @@ import {SettingsView} from './components/SettingsView';
 import {Welcome} from './components/Welcome';
 
 type Screen = 'welcome' | 'settings' | 'day';
+type PaneFocusRequest = {position: number; revision: number};
 
 export default function App() {
     const [screen, setScreen] = useState<Screen>('welcome');
@@ -17,6 +18,12 @@ export default function App() {
     const [error, setError] = useState('');
     const [saveRequest, setSaveRequest] = useState(0);
     const [toggleCompletedRequest, setToggleCompletedRequest] = useState(0);
+    const [newDoingRequest, setNewDoingRequest] = useState(0);
+    const [focusPaneRequest, setFocusPaneRequest] = useState<PaneFocusRequest>({
+        position: 0,
+        revision: 0,
+    });
+    const [dayPickerOpen, setDayPickerOpen] = useState(false);
     const settingsReturnScreen = useRef<Screen>('welcome');
 
     const loadWelcome = async () => {
@@ -34,14 +41,18 @@ export default function App() {
         setError('');
     };
 
-    const createToday = async () => {
+    const createToday = async (closePickerWindow: boolean) => {
         try {
             const day = await appAPI.createToday();
             if (appAPI.isNative()) {
                 await appAPI.openDayWindow(day.date);
-                Quit();
+                setDayPickerOpen(false);
+                if (closePickerWindow) {
+                    Quit();
+                }
             } else {
                 showDay(day);
+                setDayPickerOpen(false);
             }
             return day;
         } catch (reason) {
@@ -50,17 +61,29 @@ export default function App() {
         }
     };
 
-    const openExistingDay = async (date: string) => {
+    const openExistingDay = async (date: string, closePickerWindow: boolean) => {
         try {
             if (appAPI.isNative()) {
                 await appAPI.openDayWindow(date);
-                Quit();
+                setDayPickerOpen(false);
+                if (closePickerWindow) {
+                    Quit();
+                }
                 return;
             }
             showDay(await appAPI.openDay(date));
+            setDayPickerOpen(false);
         } catch (reason) {
             setError(errorMessage(reason));
         }
+    };
+
+    const showDayPicker = () => {
+        if (screen === 'welcome') {
+            return;
+        }
+        setDayPickerOpen(true);
+        void loadWelcome().catch(reason => setError(errorMessage(reason)));
     };
 
     const openSettings = () => {
@@ -89,15 +112,33 @@ export default function App() {
             return;
         }
 
-        const stopSettings = EventsOn('menu:settings', openSettings);
+        const stopSettings = EventsOn('menu:settings', () => {
+            if (!dayPickerOpen) {
+                openSettings();
+            }
+        });
+        const stopOpen = EventsOn('menu:open', showDayPicker);
         const stopSave = EventsOn('menu:save', () => {
-            if (screen === 'day') {
+            if (screen === 'day' && !dayPickerOpen) {
                 setSaveRequest(request => request + 1);
             }
         });
         const stopToggleCompleted = EventsOn('menu:toggle-completed', () => {
-            if (screen === 'day') {
+            if (screen === 'day' && !dayPickerOpen) {
                 setToggleCompletedRequest(request => request + 1);
+            }
+        });
+        const stopNewDoing = EventsOn('menu:new-doing', () => {
+            if (screen === 'day' && !dayPickerOpen) {
+                setNewDoingRequest(request => request + 1);
+            }
+        });
+        const stopFocusPane = EventsOn('menu:focus-pane', (position: number) => {
+            if (screen === 'day' && !dayPickerOpen) {
+                setFocusPaneRequest(current => ({
+                    position,
+                    revision: current.revision + 1,
+                }));
             }
         });
         const stopFont = EventsOn('menu:font', (editorFont: string) => {
@@ -106,8 +147,11 @@ export default function App() {
         const stopError = EventsOn('menu:error', (message: string) => setError(message));
         return () => {
             stopSettings();
+            stopOpen();
             stopSave();
             stopToggleCompleted();
+            stopNewDoing();
+            stopFocusPane();
             stopFont();
             stopError();
         };
@@ -125,17 +169,43 @@ export default function App() {
 
     useEffect(() => {
         const shortcut = (event: KeyboardEvent) => {
+            if (event.key === 'Escape' && dayPickerOpen) {
+                event.preventDefault();
+                setDayPickerOpen(false);
+                return;
+            }
+            if (!(event.metaKey || event.ctrlKey) || event.altKey) {
+                return;
+            }
+            const key = event.key.toLowerCase();
+            if (dayPickerOpen) {
+                if (key === 'o' || key === 'n') {
+                    event.preventDefault();
+                }
+                return;
+            }
             if ((event.metaKey || event.ctrlKey) && event.key === ',') {
                 event.preventDefault();
                 openSettings();
+                return;
             }
-            if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's' && screen === 'day') {
+            if ((key === 'o' || key === 'n')) {
+                event.preventDefault();
+                showDayPicker();
+                return;
+            }
+            if (key === 's' && screen === 'day') {
                 event.preventDefault();
                 setSaveRequest(request => request + 1);
+                return;
+            }
+            if (key === 't' && screen === 'day') {
+                event.preventDefault();
+                setNewDoingRequest(request => request + 1);
             }
         };
-        window.addEventListener('keydown', shortcut);
-        return () => window.removeEventListener('keydown', shortcut);
+        window.addEventListener('keydown', shortcut, true);
+        return () => window.removeEventListener('keydown', shortcut, true);
     });
 
     const saveSettings = async (nextSettings: Settings) => {
@@ -173,8 +243,8 @@ export default function App() {
             {screen === 'welcome' && (
                 <Welcome
                     days={days}
-                    onCreateToday={createToday}
-                    onOpenDay={openExistingDay}
+                    onCreateToday={() => createToday(true)}
+                    onOpenDay={date => openExistingDay(date, true)}
                 />
             )}
 
@@ -192,7 +262,36 @@ export default function App() {
                     day={openDay}
                     saveRequest={saveRequest}
                     toggleCompletedRequest={toggleCompletedRequest}
+                    newDoingRequest={newDoingRequest}
+                    focusPaneRequest={focusPaneRequest}
+                    interactionDisabled={dayPickerOpen}
+                    onError={message => setError(message)}
                 />
+            )}
+
+            {dayPickerOpen && screen !== 'welcome' && (
+                <div
+                    className="day-picker-backdrop"
+                    onMouseDown={event => {
+                        if (event.target === event.currentTarget) {
+                            setDayPickerOpen(false);
+                        }
+                    }}
+                >
+                    <section
+                        className="day-picker-sheet"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Open a journal day"
+                    >
+                        <Welcome
+                            days={days}
+                            embedded
+                            onCreateToday={() => createToday(!openDay)}
+                            onOpenDay={date => openExistingDay(date, !openDay)}
+                        />
+                    </section>
+                </div>
             )}
         </div>
     );

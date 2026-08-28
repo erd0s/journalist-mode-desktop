@@ -9,21 +9,56 @@ type DayWorkspaceProps = {
     day: DayData;
     saveRequest: number;
     toggleCompletedRequest: number;
+    newDoingRequest: number;
+    focusPaneRequest: {position: number; revision: number};
+    interactionDisabled: boolean;
+    onError: (message: string) => void;
 };
 
-export function DayWorkspace({day, saveRequest, toggleCompletedRequest}: DayWorkspaceProps) {
-    const files = useMemo(() => [day.todo, ...day.doing], [day]);
+export function DayWorkspace({
+    day,
+    saveRequest,
+    toggleCompletedRequest,
+    newDoingRequest,
+    focusPaneRequest,
+    interactionDisabled,
+    onError,
+}: DayWorkspaceProps) {
+    const [doingFiles, setDoingFiles] = useState<JournalFile[]>(day.doing);
+    const files = useMemo(() => [day.todo, ...doingFiles], [day.todo, doingFiles]);
     const paths = useMemo(() => files.map(file => file.path), [files]);
-    const [activeDoingPath, setActiveDoingPath] = useState(day.doing[0]?.path ?? '');
+    const [activeDoingPath, setActiveDoingPath] = useState(doingFiles[0]?.path ?? '');
+    const [editorFocus, setEditorFocus] = useState({path: '', revision: 0});
     const [diskContents, setDiskContents] = useState<Record<string, string>>(
         () => contentsByPath(files),
     );
+    const handledNewDoingRequest = useRef(newDoingRequest);
+    const handledFocusRequest = useRef(focusPaneRequest.revision);
+    const createChain = useRef<Promise<void>>(Promise.resolve());
+    const mounted = useRef(true);
+    const currentDate = useRef(day.date);
 
     useEffect(() => {
-        if (!day.doing.some(file => file.path === activeDoingPath)) {
-            setActiveDoingPath(day.doing[0]?.path ?? '');
+        mounted.current = true;
+        return () => {
+            mounted.current = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        currentDate.current = day.date;
+        setDoingFiles(day.doing);
+        setActiveDoingPath(day.doing[0]?.path ?? '');
+        setEditorFocus({path: '', revision: 0});
+        handledNewDoingRequest.current = newDoingRequest;
+        createChain.current = Promise.resolve();
+    }, [day.date]);
+
+    useEffect(() => {
+        if (!doingFiles.some(file => file.path === activeDoingPath)) {
+            setActiveDoingPath(doingFiles[0]?.path ?? '');
         }
-    }, [activeDoingPath, day.doing]);
+    }, [activeDoingPath, doingFiles]);
 
     useEffect(() => {
         setDiskContents(contentsByPath(files));
@@ -65,16 +100,93 @@ export function DayWorkspace({day, saveRequest, toggleCompletedRequest}: DayWork
             : {...current, [path]: nextContent});
     }, []);
 
+    const focusPath = useCallback((path: string): boolean => {
+        if (path === day.todo.path) {
+            setEditorFocus(current => ({path, revision: current.revision + 1}));
+            return true;
+        }
+        if (!doingFiles.some(file => file.path === path)) {
+            return false;
+        }
+        setActiveDoingPath(path);
+        setEditorFocus(current => ({path, revision: current.revision + 1}));
+        return true;
+    }, [day.todo.path, doingFiles]);
+
+    const focusPosition = useCallback((position: number): boolean => {
+        const path = position === 1
+            ? day.todo.path
+            : doingFiles[position - 2]?.path;
+        return path ? focusPath(path) : false;
+    }, [day.todo.path, doingFiles, focusPath]);
+
+    useEffect(() => {
+        const shortcut = (event: KeyboardEvent) => {
+            if (interactionDisabled) {
+                return;
+            }
+            if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) {
+                return;
+            }
+            if (!/^[1-9]$/.test(event.key)) {
+                return;
+            }
+            if (focusPosition(Number(event.key))) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+        };
+        window.addEventListener('keydown', shortcut, true);
+        return () => window.removeEventListener('keydown', shortcut, true);
+    }, [focusPosition, interactionDisabled]);
+
+    useEffect(() => {
+        if (handledFocusRequest.current === focusPaneRequest.revision) {
+            return;
+        }
+        handledFocusRequest.current = focusPaneRequest.revision;
+        focusPosition(focusPaneRequest.position);
+    }, [focusPaneRequest, focusPosition]);
+
+    useEffect(() => {
+        const count = newDoingRequest - handledNewDoingRequest.current;
+        if (count <= 0) {
+            return;
+        }
+        handledNewDoingRequest.current = newDoingRequest;
+        createChain.current = createChain.current.then(async () => {
+            for (let pending = 0; pending < count; pending += 1) {
+                try {
+                    const requestedDate = day.date;
+                    const file = await appAPI.createDoingStream(requestedDate);
+                    if (!mounted.current || currentDate.current !== requestedDate) {
+                        return;
+                    }
+                    setDoingFiles(current => current.some(item => item.path === file.path)
+                        ? current
+                        : [...current, file].sort((left, right) => left.streamIndex - right.streamIndex));
+                    setDiskContents(current => ({...current, [file.path]: file.content}));
+                    setActiveDoingPath(file.path);
+                    setEditorFocus(current => ({path: file.path, revision: current.revision + 1}));
+                } catch (reason) {
+                    onError(errorMessage(reason));
+                }
+            }
+        });
+    }, [day.date, newDoingRequest, onError]);
+
     return (
         <main className="workspace-shell">
+            <div className="window-drag-region" aria-hidden="true"/>
             <section className="pane-strip">
                 <TodoPane
                     file={day.todo}
                     saveRequest={saveRequest}
                     diskContent={diskContents[day.todo.path] ?? day.todo.content}
                     onDiskContent={updateDiskContent}
+                    focusRequest={editorFocus.path === day.todo.path ? editorFocus.revision : 0}
                 />
-                {day.doing.length > 0 ? day.doing.map(file => (
+                {doingFiles.length > 0 ? doingFiles.map(file => (
                     <DoingPane
                         file={file}
                         key={file.path}
@@ -84,6 +196,7 @@ export function DayWorkspace({day, saveRequest, toggleCompletedRequest}: DayWork
                         toggleCompletedRequest={toggleCompletedRequest}
                         active={file.path === activeDoingPath}
                         onFocus={() => setActiveDoingPath(file.path)}
+                        focusRequest={editorFocus.path === file.path ? editorFocus.revision : 0}
                     />
                 )) : (
                     <div className="missing-stream">
@@ -101,9 +214,16 @@ type DiskAwarePaneProps = {
     saveRequest: number;
     diskContent: string;
     onDiskContent: (path: string, content: string) => void;
+    focusRequest: number;
 };
 
-function TodoPane({file, saveRequest, diskContent, onDiskContent}: DiskAwarePaneProps) {
+function TodoPane({
+    file,
+    saveRequest,
+    diskContent,
+    onDiskContent,
+    focusRequest,
+}: DiskAwarePaneProps) {
     const journal = useJournalFile(file, saveRequest, diskContent, onDiskContent);
 
     return (
@@ -114,7 +234,12 @@ function TodoPane({file, saveRequest, diskContent, onDiskContent}: DiskAwarePane
                 onUseDisk={journal.useDiskVersion}
                 onOverwrite={journal.overwriteDisk}
             />
-            <LineEditor kind="todo" lines={journal.lines} onChange={journal.update}/>
+            <LineEditor
+                kind="todo"
+                lines={journal.lines}
+                onChange={journal.update}
+                focusRequest={focusRequest}
+            />
         </article>
     );
 }
@@ -133,6 +258,7 @@ function DoingPane({
     toggleCompletedRequest,
     active,
     onFocus,
+    focusRequest,
 }: DoingPaneProps) {
     const journal = useJournalFile(file, saveRequest, diskContent, onDiskContent);
     const [showCompleted, setShowCompleted] = useState(false);
@@ -163,6 +289,7 @@ function DoingPane({
                 onChange={journal.update}
                 onFocus={onFocus}
                 onToggleCompleted={() => setShowCompleted(value => !value)}
+                focusRequest={focusRequest}
             />
         </article>
     );
@@ -380,4 +507,13 @@ function saveStateLabel(state: SaveState): string {
     default:
         return 'Save failed';
     }
+}
+
+function errorMessage(reason: unknown): string {
+    if (reason instanceof Error) {
+        return reason.message;
+    }
+    return typeof reason === 'string'
+        ? reason
+        : 'Could not create another Doing stream.';
 }

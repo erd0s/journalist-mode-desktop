@@ -5,23 +5,20 @@ type WelcomeProps = {
     days: DaySummary[];
     onCreateToday: () => Promise<DayData>;
     onOpenDay: (date: string) => Promise<void>;
+    embedded?: boolean;
 };
 
-export function Welcome({days, onCreateToday, onOpenDay}: WelcomeProps) {
+export function Welcome({days, onCreateToday, onOpenDay, embedded = false}: WelcomeProps) {
     const today = localISODate();
     const todaySummary = days.find(day => day.date === today);
     const previousDays = days.filter(day => day.date !== today);
 
     return (
-        <main className="welcome-shell">
+        <main className={`welcome-shell${embedded ? ' welcome-embedded' : ''}`}>
             <section className="welcome-content">
-                <div className="welcome-title">
-                    <p className="eyebrow">Journalist Mode</p>
-                    <h1>Open a journal day</h1>
-                </div>
-
                 <button
                     className="today-action"
+                    autoFocus={embedded}
                     onClick={() => todaySummary ? onOpenDay(today) : onCreateToday()}
                 >
                     <span className="today-icon"><Icon name="calendar"/></span>

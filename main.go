@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/wailsapp/wails/v2"
@@ -10,6 +11,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -17,22 +19,35 @@ import (
 var assets embed.FS
 
 func main() {
-	app := NewApp(launchDateFromArgs(os.Args[1:]))
+	launchDate := launchDateFromArgs(os.Args[1:])
+	app := NewApp(launchDate)
+	width, height := 1480, 900
+	minWidth, minHeight := 900, 640
+	disableResize := false
+	if launchDate == "" {
+		width, height = 900, 640
+		minWidth, minHeight = width, height
+		disableResize = true
+	}
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:     "Journalist Mode",
-		Width:     1480,
-		Height:    900,
-		MinWidth:  900,
-		MinHeight: 640,
-		Menu:      applicationMenu(app),
+		Title:         "Journalist Mode",
+		Width:         width,
+		Height:        height,
+		MinWidth:      minWidth,
+		MinHeight:     minHeight,
+		DisableResize: disableResize,
+		Menu:          applicationMenu(app),
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 244, G: 241, B: 235, A: 1},
-		OnStartup:        app.startup,
-		OnShutdown:       app.shutdown,
+		Mac: &mac.Options{
+			TitleBar: mac.TitleBarHiddenInset(),
+		},
+		OnStartup:  app.startup,
+		OnShutdown: app.shutdown,
 		Bind: []interface{}{
 			app,
 		},
@@ -47,16 +62,18 @@ func applicationMenu(app *App) *menu.Menu {
 	application := menu.NewMenu()
 	application.Append(menu.AppMenu())
 	fileMenu := application.AddSubmenu("File")
-	fileMenu.AddText("New Window", keys.CmdOrCtrl("n"), func(_ *menu.CallbackData) {
-		if err := app.OpenNewWindow(); err != nil && app.ctx != nil {
-			runtime.EventsEmit(app.ctx, "menu:error", err.Error())
-		}
-	})
 	fileMenu.AddText("Open Journal Day…", keys.CmdOrCtrl("o"), func(_ *menu.CallbackData) {
-		if err := app.OpenDayPicker(); err != nil && app.ctx != nil {
-			runtime.EventsEmit(app.ctx, "menu:error", err.Error())
+		if app.ctx != nil {
+			runtime.EventsEmit(app.ctx, "menu:open")
 		}
 	})
+	if app.GetLaunchDate() != "" {
+		fileMenu.AddText("New Doing Stream", keys.CmdOrCtrl("t"), func(_ *menu.CallbackData) {
+			if app.ctx != nil {
+				runtime.EventsEmit(app.ctx, "menu:new-doing")
+			}
+		})
+	}
 	fileMenu.AddSeparator()
 	fileMenu.AddText("Save All", keys.CmdOrCtrl("s"), func(_ *menu.CallbackData) {
 		if app.ctx != nil {
@@ -90,6 +107,28 @@ func applicationMenu(app *App) *menu.Menu {
 			runtime.EventsEmit(app.ctx, "menu:toggle-completed")
 		}
 	})
+	if launchDate := app.GetLaunchDate(); launchDate != "" {
+		day, err := app.OpenDay(launchDate)
+		if err == nil {
+			focusMenu := viewMenu.AddSubmenu("Focus Pane")
+			paneLabels := []string{"Todo"}
+			for _, file := range day.Doing {
+				paneLabels = append(paneLabels, "Doing "+strconv.Itoa(file.StreamIndex))
+			}
+			for index, label := range paneLabels {
+				position := index + 1
+				var accelerator *keys.Accelerator
+				if position <= 9 {
+					accelerator = keys.CmdOrCtrl(strconv.Itoa(position))
+				}
+				focusMenu.AddText(label, accelerator, func(_ *menu.CallbackData) {
+					if app.ctx != nil {
+						runtime.EventsEmit(app.ctx, "menu:focus-pane", position)
+					}
+				})
+			}
+		}
+	}
 	viewMenu.AddSeparator()
 	fontMenu := viewMenu.AddSubmenu("Editor Font")
 	fontItems := make([]*menu.MenuItem, len(fontOptions))

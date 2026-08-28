@@ -118,22 +118,6 @@ func (a *App) GetLaunchDate() string {
 	return a.launchDate
 }
 
-// OpenNewWindow starts another app window at the day picker. Wails v2 has one
-// native window per process, so separate instances provide normal independent
-// macOS windows while sharing the same plain-text files and settings.
-func (a *App) OpenNewWindow() error {
-	return a.openWindow("")
-}
-
-// OpenDayPicker opens the custom day picker from a day window. If this window
-// is already the picker, there is nothing else to open.
-func (a *App) OpenDayPicker() error {
-	if a.launchDate == "" {
-		return nil
-	}
-	return a.OpenNewWindow()
-}
-
 // OpenDayWindow focuses an existing window for the date or opens a new one.
 func (a *App) OpenDayWindow(date string) (string, error) {
 	if !validDate(date) {
@@ -435,6 +419,86 @@ func (a *App) CreateDay(date string) (DayData, error) {
 	}
 
 	return a.OpenDay(date)
+}
+
+// CreateDoingStream adds the next numbered Doing file for an open day. The
+// exclusive create keeps simultaneous shortcuts or app instances from choosing
+// the same filename.
+func (a *App) CreateDoingStream(date string) (JournalFile, error) {
+	if !validDate(date) {
+		return JournalFile{}, errors.New("date must use YYYY-MM-DD")
+	}
+
+	a.fileMu.Lock()
+	file, err := a.createDoingStream(date)
+	a.fileMu.Unlock()
+	if err != nil {
+		return JournalFile{}, err
+	}
+
+	if a.ctx != nil {
+		runtime.MenuSetApplicationMenu(a.ctx, applicationMenu(a))
+	}
+	return file, nil
+}
+
+func (a *App) createDoingStream(date string) (JournalFile, error) {
+	settings, err := a.GetSettings()
+	if err != nil {
+		return JournalFile{}, err
+	}
+	if err := ensureJournalFolders(settings.StorageRoot); err != nil {
+		return JournalFile{}, err
+	}
+
+	doingDir := filepath.Join(settings.StorageRoot, "Doing")
+	entries, err := os.ReadDir(doingDir)
+	if err != nil {
+		return JournalFile{}, fmt.Errorf("read Doing folder: %w", err)
+	}
+
+	nextIndex := 1
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		match := doingFilenamePattern.FindStringSubmatch(entry.Name())
+		if match == nil || match[1] != date {
+			continue
+		}
+		index := 1
+		if match[2] != "" {
+			index, _ = strconv.Atoi(match[2])
+		}
+		if index >= nextIndex {
+			nextIndex = index + 1
+		}
+	}
+
+	for {
+		name := date + ".jm.md"
+		if nextIndex > 1 {
+			name = fmt.Sprintf("%s_%d.jm.md", date, nextIndex)
+		}
+		path := filepath.Join(doingDir, name)
+		created, createErr := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if errors.Is(createErr, os.ErrExist) {
+			nextIndex++
+			continue
+		}
+		if createErr != nil {
+			return JournalFile{}, fmt.Errorf("create %s: %w", name, createErr)
+		}
+		if closeErr := created.Close(); closeErr != nil {
+			return JournalFile{}, fmt.Errorf("close %s: %w", name, closeErr)
+		}
+		return JournalFile{
+			Path:        path,
+			Name:        name,
+			Exists:      true,
+			StreamIndex: nextIndex,
+		}, nil
+	}
 }
 
 // OpenDay reads an existing day's plain-text files without changing them.

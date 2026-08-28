@@ -4,7 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
+
+	"github.com/wailsapp/wails/v2/pkg/menu"
 )
 
 func TestDefaultSettingsUseDocumentsJM(t *testing.T) {
@@ -81,6 +84,120 @@ func TestCreateListOpenAndSaveDay(t *testing.T) {
 	}
 	if string(data) != "updated" {
 		t.Fatalf("saved content = %q", data)
+	}
+}
+
+func TestCreateDoingStreamUsesNextSuffixWithoutChangingExistingFiles(t *testing.T) {
+	app := newAppForPaths(t.TempDir(), filepath.Join(t.TempDir(), "settings.json"))
+	root := filepath.Join(t.TempDir(), "journal")
+	if _, err := app.SaveSettings(Settings{StorageRoot: root}); err != nil {
+		t.Fatal(err)
+	}
+	day, err := app.CreateDay("2026-08-28")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(day.Doing[0].Path, []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := app.CreateDoingStream(day.Date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := app.CreateDoingStream(day.Date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Name != "2026-08-28_2.jm.md" || second.StreamIndex != 2 || !second.Exists {
+		t.Fatalf("unexpected second stream: %#v", second)
+	}
+	if third.Name != "2026-08-28_3.jm.md" || third.StreamIndex != 3 || !third.Exists {
+		t.Fatalf("unexpected third stream: %#v", third)
+	}
+	content, err := os.ReadFile(day.Doing[0].Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "keep me" {
+		t.Fatalf("base stream changed to %q", content)
+	}
+	if _, err := app.CreateDoingStream("not-a-date"); err == nil {
+		t.Fatal("CreateDoingStream accepted an invalid date")
+	}
+}
+
+func TestConcurrentDoingStreamCreationChoosesUniqueFiles(t *testing.T) {
+	app := newAppForPaths(t.TempDir(), filepath.Join(t.TempDir(), "settings.json"))
+	root := filepath.Join(t.TempDir(), "journal")
+	if _, err := app.SaveSettings(Settings{StorageRoot: root}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.CreateDay("2026-08-28"); err != nil {
+		t.Fatal(err)
+	}
+
+	const creations = 12
+	files := make(chan JournalFile, creations)
+	errors := make(chan error, creations)
+	var group sync.WaitGroup
+	for range creations {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			file, err := app.CreateDoingStream("2026-08-28")
+			if err != nil {
+				errors <- err
+				return
+			}
+			files <- file
+		}()
+	}
+	group.Wait()
+	close(files)
+	close(errors)
+	for err := range errors {
+		t.Fatal(err)
+	}
+
+	seen := make(map[string]bool, creations)
+	for file := range files {
+		if seen[file.Name] {
+			t.Fatalf("duplicate stream %q", file.Name)
+		}
+		seen[file.Name] = true
+	}
+	if len(seen) != creations {
+		t.Fatalf("created %d unique files, want %d", len(seen), creations)
+	}
+	day, err := app.OpenDay("2026-08-28")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(day.Doing) != creations+1 {
+		t.Fatalf("OpenDay found %d streams, want %d", len(day.Doing), creations+1)
+	}
+}
+
+func TestDayMenuContainsOnlyCurrentWindowActions(t *testing.T) {
+	app := newAppForPaths(t.TempDir(), filepath.Join(t.TempDir(), "settings.json"))
+	root := filepath.Join(t.TempDir(), "journal")
+	if _, err := app.SaveSettings(Settings{StorageRoot: root}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.CreateDay("2026-08-28"); err != nil {
+		t.Fatal(err)
+	}
+	app.launchDate = "2026-08-28"
+	application := applicationMenu(app)
+
+	if menuContainsLabel(application, "New Window") {
+		t.Fatal("day menu retained the defunct New Window action")
+	}
+	for _, label := range []string{"Open Journal Day…", "New Doing Stream", "Todo", "Doing 1"} {
+		if !menuContainsLabel(application, label) {
+			t.Fatalf("day menu is missing %q", label)
+		}
 	}
 }
 
@@ -234,4 +351,16 @@ func TestEditorFontValidation(t *testing.T) {
 	if _, err := app.SetEditorFont("comic-sans"); err == nil {
 		t.Fatal("SetEditorFont accepted an unknown font")
 	}
+}
+
+func menuContainsLabel(parent *menu.Menu, label string) bool {
+	for _, item := range parent.Items {
+		if item.Label == label {
+			return true
+		}
+		if item.SubMenu != nil && menuContainsLabel(item.SubMenu, label) {
+			return true
+		}
+	}
+	return false
 }
