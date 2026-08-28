@@ -200,7 +200,8 @@ func TestDayMenuContainsOnlyCurrentWindowActions(t *testing.T) {
 		"New Doing Stream",
 		"Toggle Todo Pane",
 		"Toggle Focused Pane Zoom",
-		"Toggle Completed Work",
+		"Toggle All Doing History",
+		"Toggle Focused Doing History",
 		"Focus Pane Left",
 		"Focus Pane Right",
 		"Todo",
@@ -212,10 +213,12 @@ func TestDayMenuContainsOnlyCurrentWindowActions(t *testing.T) {
 	}
 
 	accelerators := map[string]string{
-		"Toggle Todo Pane":         "Cmd+B",
-		"Toggle Focused Pane Zoom": "Cmd+Shift+Z",
-		"Focus Pane Left":          "Cmd+Option+LEFT",
-		"Focus Pane Right":         "Cmd+Option+RIGHT",
+		"Toggle Todo Pane":             "Cmd+B",
+		"Toggle Focused Pane Zoom":     "Cmd+Shift+Z",
+		"Toggle All Doing History":     "Cmd+Shift+H",
+		"Toggle Focused Doing History": "Cmd+Option+H",
+		"Focus Pane Left":              "Cmd+Option+LEFT",
+		"Focus Pane Right":             "Cmd+Option+RIGHT",
 	}
 	for label, want := range accelerators {
 		item := menuItemByLabel(application, label)

@@ -3,6 +3,7 @@ import {appAPI, DayData, JournalFile} from '../api';
 import {contentToLines, linesToContent} from '../lib/journal';
 import {
     adjacentPanePath,
+    nextAllDoingHistoryVisibility,
     WorkspaceAction,
     WorkspaceActionRequest,
     workspaceActionForShortcut,
@@ -14,7 +15,6 @@ const diskPollInterval = 750;
 type DayWorkspaceProps = {
     day: DayData;
     saveRequest: number;
-    toggleCompletedRequest: number;
     newDoingRequest: number;
     workspaceActionRequest: WorkspaceActionRequest;
     interactionDisabled: boolean;
@@ -24,7 +24,6 @@ type DayWorkspaceProps = {
 export function DayWorkspace({
     day,
     saveRequest,
-    toggleCompletedRequest,
     newDoingRequest,
     workspaceActionRequest,
     interactionDisabled,
@@ -36,6 +35,7 @@ export function DayWorkspace({
     const [focusedPath, setFocusedPath] = useState(doingFiles[0]?.path ?? day.todo.path);
     const [todoVisible, setTodoVisible] = useState(true);
     const [zoomedPath, setZoomedPath] = useState('');
+    const [doingHistoryVisible, setDoingHistoryVisible] = useState<Record<string, boolean>>({});
     const [editorFocus, setEditorFocus] = useState({path: '', revision: 0});
     const [diskContents, setDiskContents] = useState<Record<string, string>>(
         () => contentsByPath(files),
@@ -59,6 +59,7 @@ export function DayWorkspace({
         setFocusedPath(day.doing[0]?.path ?? day.todo.path);
         setTodoVisible(true);
         setZoomedPath('');
+        setDoingHistoryVisible({});
         setEditorFocus({path: '', revision: 0});
         handledNewDoingRequest.current = newDoingRequest;
         handledWorkspaceAction.current = workspaceActionRequest.revision;
@@ -178,6 +179,33 @@ export function DayWorkspace({
         return true;
     }, [day.todo.path, doingFiles, focusedPath, todoVisible, zoomedPath]);
 
+    const toggleAllDoingHistory = useCallback((): boolean => {
+        if (doingFiles.length === 0) {
+            return false;
+        }
+        setDoingHistoryVisible(current => {
+            const visible = doingFiles.map(file => Boolean(current[file.path]));
+            const show = nextAllDoingHistoryVisibility(visible);
+            const next = {...current};
+            for (const file of doingFiles) {
+                next[file.path] = show;
+            }
+            return next;
+        });
+        return true;
+    }, [doingFiles]);
+
+    const toggleFocusedDoingHistory = useCallback((): boolean => {
+        if (!doingFiles.some(file => file.path === focusedPath)) {
+            return false;
+        }
+        setDoingHistoryVisible(current => ({
+            ...current,
+            [focusedPath]: !current[focusedPath],
+        }));
+        return true;
+    }, [doingFiles, focusedPath]);
+
     const handleWorkspaceAction = useCallback((action: WorkspaceAction): boolean => {
         switch (action.type) {
             case 'focus-position':
@@ -188,8 +216,19 @@ export function DayWorkspace({
                 return toggleZoom();
             case 'toggle-todo':
                 return toggleTodo();
+            case 'toggle-all-doing-history':
+                return toggleAllDoingHistory();
+            case 'toggle-focused-doing-history':
+                return toggleFocusedDoingHistory();
         }
-    }, [focusPosition, moveFocus, toggleTodo, toggleZoom]);
+    }, [
+        focusPosition,
+        moveFocus,
+        toggleAllDoingHistory,
+        toggleFocusedDoingHistory,
+        toggleTodo,
+        toggleZoom,
+    ]);
 
     useEffect(() => {
         const shortcut = (event: KeyboardEvent) => {
@@ -265,8 +304,7 @@ export function DayWorkspace({
                         saveRequest={saveRequest}
                         diskContent={diskContents[file.path] ?? file.content}
                         onDiskContent={updateDiskContent}
-                        toggleCompletedRequest={toggleCompletedRequest}
-                        active={file.path === focusedPath}
+                        showCompleted={Boolean(doingHistoryVisible[file.path])}
                         onFocus={() => setFocusedPath(file.path)}
                         focusRequest={editorFocus.path === file.path ? editorFocus.revision : 0}
                         hidden={Boolean(zoomedPath && zoomedPath !== file.path)}
@@ -323,8 +361,7 @@ function TodoPane({
 }
 
 type DoingPaneProps = DiskAwarePaneProps & {
-    toggleCompletedRequest: number;
-    active: boolean;
+    showCompleted: boolean;
     onFocus: () => void;
 };
 
@@ -333,25 +370,12 @@ function DoingPane({
     saveRequest,
     diskContent,
     onDiskContent,
-    toggleCompletedRequest,
-    active,
+    showCompleted,
     onFocus,
     focusRequest,
     hidden,
 }: DoingPaneProps) {
     const journal = useJournalFile(file, saveRequest, diskContent, onDiskContent);
-    const [showCompleted, setShowCompleted] = useState(false);
-    const handledToggleRequest = useRef(toggleCompletedRequest);
-
-    useEffect(() => {
-        if (handledToggleRequest.current === toggleCompletedRequest) {
-            return;
-        }
-        handledToggleRequest.current = toggleCompletedRequest;
-        if (active) {
-            setShowCompleted(value => !value);
-        }
-    }, [active, toggleCompletedRequest]);
 
     return (
         <article className="journal-pane doing-pane" hidden={hidden}>
@@ -367,7 +391,6 @@ function DoingPane({
                 showCompleted={showCompleted}
                 onChange={journal.update}
                 onFocus={onFocus}
-                onToggleCompleted={() => setShowCompleted(value => !value)}
                 focusRequest={focusRequest}
             />
         </article>

@@ -1,5 +1,9 @@
 import {describe, expect, it} from 'vitest';
-import {adjacentPanePath, workspaceActionForShortcut} from './workspace';
+import {
+    adjacentPanePath,
+    nextAllDoingHistoryVisibility,
+    workspaceActionForShortcut,
+} from './workspace';
 
 const command = (key: string, modifiers: Partial<{
     metaKey: boolean;
@@ -25,6 +29,8 @@ describe('workspaceActionForShortcut', () => {
     it('maps pane visibility and zoom shortcuts', () => {
         expect(command('z', {shiftKey: true})).toEqual({type: 'toggle-zoom'});
         expect(command('b')).toEqual({type: 'toggle-todo'});
+        expect(command('h', {shiftKey: true})).toEqual({type: 'toggle-all-doing-history'});
+        expect(command('h', {altKey: true})).toEqual({type: 'toggle-focused-doing-history'});
     });
 
     it('keeps numeric pane focus and rejects conflicting modifiers or repeats', () => {
@@ -33,6 +39,15 @@ describe('workspaceActionForShortcut', () => {
         expect(command('b', {shiftKey: true})).toBeNull();
         expect(command('b', {repeat: true})).toBeNull();
         expect(command('b', {metaKey: false})).toBeNull();
+    });
+});
+
+describe('nextAllDoingHistoryVisibility', () => {
+    it('shows all only when every Doing pane currently hides history', () => {
+        expect(nextAllDoingHistoryVisibility([false, false, false])).toBe(true);
+        expect(nextAllDoingHistoryVisibility([true, true, true])).toBe(false);
+        expect(nextAllDoingHistoryVisibility([true, false, true])).toBe(false);
+        expect(nextAllDoingHistoryVisibility([])).toBe(false);
     });
 });
 

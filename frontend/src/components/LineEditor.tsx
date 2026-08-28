@@ -7,6 +7,7 @@ import {
     keymap,
     ViewPlugin,
     ViewUpdate,
+    WidgetType,
 } from '@codemirror/view';
 import {useEffect, useRef} from 'react';
 import {
@@ -21,6 +22,7 @@ import {
     isCompleted,
     linesToContent,
 } from '../lib/journal';
+import {clockEmojiForTimestamp} from '../lib/timestamp';
 
 type LineEditorProps = {
     kind: 'doing' | 'todo';
@@ -28,7 +30,6 @@ type LineEditorProps = {
     showCompleted?: boolean;
     onChange: (lines: string[]) => void;
     onFocus?: () => void;
-    onToggleCompleted?: () => void;
     focusRequest?: number;
 };
 
@@ -40,19 +41,16 @@ export function LineEditor({
     showCompleted = true,
     onChange,
     onFocus,
-    onToggleCompleted,
     focusRequest = 0,
 }: LineEditorProps) {
     const hostRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView>();
     const onChangeRef = useRef(onChange);
     const onFocusRef = useRef(onFocus);
-    const onToggleCompletedRef = useRef(onToggleCompleted);
     const completedVisibility = useRef(new Compartment());
 
     onChangeRef.current = onChange;
     onFocusRef.current = onFocus;
-    onToggleCompletedRef.current = onToggleCompleted;
 
     useEffect(() => {
         if (!hostRef.current) {
@@ -99,7 +97,7 @@ export function LineEditor({
                         });
                         return true;
                     }),
-                    Prec.high(keymap.of(journalKeymap(kind, onToggleCompletedRef))),
+                    Prec.high(keymap.of(journalKeymap(kind))),
                     keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap]),
                     completedVisibility.current.of(
                         journalLineView(kind, kind === 'doing' ? showCompleted : true),
@@ -167,10 +165,7 @@ export function LineEditor({
     return <div className={`file-editor ${kind}-editor`} ref={hostRef}/>;
 }
 
-function journalKeymap(
-    kind: 'doing' | 'todo',
-    onToggleCompletedRef: {current?: () => void},
-) {
+function journalKeymap(kind: 'doing' | 'todo') {
     const mutate = (
         view: EditorView,
         action: 'enter' | 'finish' | 'cancel',
@@ -199,16 +194,6 @@ function journalKeymap(
                 }
                 const line = view.state.doc.lineAt(view.state.selection.main.head).text;
                 void copyText(copyTodoText(line));
-                return true;
-            },
-        },
-        {
-            key: 'Mod-Shift-h',
-            run: () => {
-                if (kind !== 'doing' || !onToggleCompletedRef.current) {
-                    return false;
-                }
-                onToggleCompletedRef.current();
                 return true;
             },
         },
@@ -255,6 +240,40 @@ function journalLineView(kind: 'doing' | 'todo', showCompleted: boolean) {
     });
 }
 
+class JournalClockWidget extends WidgetType {
+    constructor(
+        private readonly timestamp: string,
+        private readonly positionAfter: number,
+    ) {
+        super();
+    }
+
+    eq(other: JournalClockWidget): boolean {
+        return this.timestamp === other.timestamp && this.positionAfter === other.positionAfter;
+    }
+
+    toDOM(view: EditorView): HTMLElement {
+        const clock = document.createElement('span');
+        clock.className = 'cm-journal-clock';
+        clock.textContent = clockEmojiForTimestamp(this.timestamp) ?? this.timestamp;
+        clock.title = this.timestamp.slice(1, -1);
+        clock.setAttribute('role', 'img');
+        clock.setAttribute('aria-label', `Timestamp ${this.timestamp.slice(1, -1)}`);
+        clock.addEventListener('mousedown', event => {
+            if (event.button !== 0) {
+                return;
+            }
+            event.preventDefault();
+            view.dispatch({
+                selection: {anchor: this.positionAfter},
+                scrollIntoView: true,
+            });
+            view.focus();
+        });
+        return clock;
+    }
+}
+
 export function journalDecorations(
     view: EditorView,
     kind: 'doing' | 'todo',
@@ -266,8 +285,21 @@ export function journalDecorations(
         const metadataPattern = /\[\d{4}-\d{2}-\d{2}\]|\(\d{4}-\d{2}-\d{2} \d{2}:\d{2}\)/g;
         for (const match of line.text.matchAll(metadataPattern)) {
             const from = line.from + (match.index ?? 0);
+            const clock = clockEmojiForTimestamp(match[0]);
+            if (!clock) {
+                ranges.push(
+                    Decoration.mark({class: 'cm-journal-date'}).range(
+                        from,
+                        from + match[0].length,
+                    ),
+                );
+                continue;
+            }
+            const to = from + match[0].length;
             ranges.push(
-                Decoration.mark({class: 'cm-journal-date'}).range(from, from + match[0].length),
+                Decoration.replace({
+                    widget: new JournalClockWidget(match[0], to),
+                }).range(from, to),
             );
         }
 

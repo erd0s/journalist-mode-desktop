@@ -2,7 +2,9 @@ export type WorkspaceAction =
     | {type: 'focus-position'; position: number}
     | {type: 'move-focus'; delta: -1 | 1}
     | {type: 'toggle-zoom'}
-    | {type: 'toggle-todo'};
+    | {type: 'toggle-todo'}
+    | {type: 'toggle-all-doing-history'}
+    | {type: 'toggle-focused-doing-history'};
 
 export type WorkspaceActionRequest = {
     action: WorkspaceAction;
@@ -31,13 +33,22 @@ export function workspaceActionForShortcut(shortcut: Shortcut): WorkspaceAction 
         if (key === 'arrowright') {
             return {type: 'move-focus', delta: 1};
         }
+        if (key === 'h') {
+            return {type: 'toggle-focused-doing-history'};
+        }
         return null;
     }
     if (shortcut.altKey) {
         return null;
     }
     if (shortcut.shiftKey) {
-        return key === 'z' ? {type: 'toggle-zoom'} : null;
+        if (key === 'z') {
+            return {type: 'toggle-zoom'};
+        }
+        if (key === 'h') {
+            return {type: 'toggle-all-doing-history'};
+        }
+        return null;
     }
     if (key === 'b') {
         return {type: 'toggle-todo'};
@@ -46,6 +57,10 @@ export function workspaceActionForShortcut(shortcut: Shortcut): WorkspaceAction 
         return {type: 'focus-position', position: Number(key)};
     }
     return null;
+}
+
+export function nextAllDoingHistoryVisibility(visible: boolean[]): boolean {
+    return visible.length > 0 && visible.every(value => !value);
 }
 
 export function adjacentPanePath(

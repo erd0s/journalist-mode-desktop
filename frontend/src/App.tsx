@@ -17,7 +17,6 @@ export default function App() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [saveRequest, setSaveRequest] = useState(0);
-    const [toggleCompletedRequest, setToggleCompletedRequest] = useState(0);
     const [newDoingRequest, setNewDoingRequest] = useState(0);
     const [workspaceActionRequest, setWorkspaceActionRequest] = useState<WorkspaceActionRequest>({
         action: {type: 'focus-position', position: 0},
@@ -130,9 +129,14 @@ export default function App() {
                 setSaveRequest(request => request + 1);
             }
         });
-        const stopToggleCompleted = EventsOn('menu:toggle-completed', () => {
+        const stopToggleAllDoingHistory = EventsOn('menu:toggle-all-doing-history', () => {
             if (screen === 'day' && !dayPickerOpen) {
-                setToggleCompletedRequest(request => request + 1);
+                requestWorkspaceAction({type: 'toggle-all-doing-history'});
+            }
+        });
+        const stopToggleFocusedDoingHistory = EventsOn('menu:toggle-focused-doing-history', () => {
+            if (screen === 'day' && !dayPickerOpen) {
+                requestWorkspaceAction({type: 'toggle-focused-doing-history'});
             }
         });
         const stopNewDoing = EventsOn('menu:new-doing', () => {
@@ -168,7 +172,8 @@ export default function App() {
             stopSettings();
             stopOpen();
             stopSave();
-            stopToggleCompleted();
+            stopToggleAllDoingHistory();
+            stopToggleFocusedDoingHistory();
             stopNewDoing();
             stopFocusPane();
             stopMoveFocus();
@@ -283,7 +288,6 @@ export default function App() {
                 <DayWorkspace
                     day={openDay}
                     saveRequest={saveRequest}
-                    toggleCompletedRequest={toggleCompletedRequest}
                     newDoingRequest={newDoingRequest}
                     workspaceActionRequest={workspaceActionRequest}
                     interactionDisabled={dayPickerOpen}

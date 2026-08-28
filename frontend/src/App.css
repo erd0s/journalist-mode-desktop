@@ -483,8 +483,8 @@
 }
 
 .journal-pane {
-    min-width: 390px;
-    flex: 1 0 410px;
+    min-width: 0;
+    flex: 1 1 0;
     height: 100%;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
@@ -507,8 +507,6 @@
 }
 
 .todo-pane {
-    min-width: 320px;
-    flex: 0 0 340px;
     background: #f8f5ef;
 }
 
@@ -670,6 +668,18 @@
     letter-spacing: -0.025em;
 }
 
+.file-editor .cm-journal-clock {
+    display: inline-block;
+    width: 1.35em;
+    margin: 0 0.08em;
+    cursor: text;
+    font-family: Apple Color Emoji, "Segoe UI Emoji", sans-serif;
+    font-size: 0.88em;
+    line-height: 1;
+    text-align: center;
+    vertical-align: -0.04em;
+}
+
 .file-editor .cm-todo-category {
     font-weight: 750;
 }
@@ -679,8 +689,8 @@
 }
 
 .missing-stream {
-    min-width: 390px;
-    flex: 1 0 410px;
+    min-width: 0;
+    flex: 1 1 0;
     display: flex;
     flex-direction: column;
     align-items: center;

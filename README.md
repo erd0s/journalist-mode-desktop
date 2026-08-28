@@ -25,9 +25,9 @@ JM/
     └── 2026-08-28_3.jm.md
 ```
 
-Creating a day creates the Todo file and the first Doing file without truncating files that already exist. Numbered Doing files represent parallel work streams. Each date opens in its own native window, with Todo on the left and Doing streams arranged to its right. You can hide Todo when you only need the journal streams, or zoom the focused pane to fill the workspace without closing or reloading the other editors.
+Creating a day creates the Todo file and the first Doing file without truncating files that already exist. Numbered Doing files represent parallel work streams. Each date opens in its own native window, with Todo on the left and Doing streams arranged to its right. Visible panes divide the available window width evenly. You can hide Todo when you only need the journal streams, or zoom the focused pane to fill the workspace without closing or reloading the other editors.
 
-The editors preserve the underlying Markdown. Dates and timestamps use compact styling, and completed entries render with strikethrough while remaining editable text.
+The editors preserve the underlying Markdown. A complete Doing timestamp such as `(2026-08-28 21:47)` appears as the nearest half-hour clock face, while the exact timestamp remains in the file and appears on hover. Click the clock and press Backspace to remove the closing `)` and expose the raw timestamp; type `)` again to restore the clock. Todo dates use compact styling, and completed entries render with strikethrough while remaining editable text.
 
 Journalist Mode does not autosave. `Command-S` saves every pane in the current window. Clean files reload when another program changes them. If a file changes both inside and outside the app, Journalist Mode preserves both versions and asks which one to keep.
 
@@ -41,7 +41,8 @@ The app does not sort Todo entries or provide file synchronization.
 | `Shift-Return` | Complete the selected Todo entry or deepest active Doing entry |
 | `Shift-Escape` | Cancel the selected Todo entry or deepest active Doing entry |
 | `Command-Shift-C` | Copy Todo text without its date or completion markers |
-| `Command-Shift-H` | Toggle the focused Doing pane between active work and full history |
+| `Command-Shift-H` | Toggle completed history in every Doing pane; a mixed state hides all history |
+| `Command-Option-H` | Toggle completed history in the focused Doing pane |
 | `Command-S` | Save every pane in the current window |
 | `Command-O` or `Command-N` | Show the day picker in the current window |
 | `Command-T` | Create and focus the next numbered Doing stream |

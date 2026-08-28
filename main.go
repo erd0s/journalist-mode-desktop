@@ -113,9 +113,14 @@ func applicationMenu(app *App) *menu.Menu {
 				runtime.EventsEmit(app.ctx, "menu:toggle-pane-zoom")
 			}
 		})
-		viewMenu.AddText("Toggle Completed Work", keys.Combo("h", keys.CmdOrCtrlKey, keys.ShiftKey), func(_ *menu.CallbackData) {
+		viewMenu.AddText("Toggle All Doing History", keys.Combo("h", keys.CmdOrCtrlKey, keys.ShiftKey), func(_ *menu.CallbackData) {
 			if app.ctx != nil {
-				runtime.EventsEmit(app.ctx, "menu:toggle-completed")
+				runtime.EventsEmit(app.ctx, "menu:toggle-all-doing-history")
+			}
+		})
+		viewMenu.AddText("Toggle Focused Doing History", keys.Combo("h", keys.CmdOrCtrlKey, keys.OptionOrAltKey), func(_ *menu.CallbackData) {
+			if app.ctx != nil {
+				runtime.EventsEmit(app.ctx, "menu:toggle-focused-doing-history")
 			}
 		})
 		viewMenu.AddSeparator()
