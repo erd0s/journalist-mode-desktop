@@ -102,12 +102,33 @@ func applicationMenu(app *App) *menu.Menu {
 		{id: "system", label: "System Sans"},
 	}
 	viewMenu := application.AddSubmenu("View")
-	viewMenu.AddText("Toggle Completed Work", keys.Combo("h", keys.CmdOrCtrlKey, keys.ShiftKey), func(_ *menu.CallbackData) {
-		if app.ctx != nil {
-			runtime.EventsEmit(app.ctx, "menu:toggle-completed")
-		}
-	})
 	if launchDate := app.GetLaunchDate(); launchDate != "" {
+		viewMenu.AddText("Toggle Todo Pane", keys.CmdOrCtrl("b"), func(_ *menu.CallbackData) {
+			if app.ctx != nil {
+				runtime.EventsEmit(app.ctx, "menu:toggle-todo")
+			}
+		})
+		viewMenu.AddText("Toggle Focused Pane Zoom", keys.Combo("z", keys.CmdOrCtrlKey, keys.ShiftKey), func(_ *menu.CallbackData) {
+			if app.ctx != nil {
+				runtime.EventsEmit(app.ctx, "menu:toggle-pane-zoom")
+			}
+		})
+		viewMenu.AddText("Toggle Completed Work", keys.Combo("h", keys.CmdOrCtrlKey, keys.ShiftKey), func(_ *menu.CallbackData) {
+			if app.ctx != nil {
+				runtime.EventsEmit(app.ctx, "menu:toggle-completed")
+			}
+		})
+		viewMenu.AddSeparator()
+		viewMenu.AddText("Focus Pane Left", keys.Combo("left", keys.CmdOrCtrlKey, keys.OptionOrAltKey), func(_ *menu.CallbackData) {
+			if app.ctx != nil {
+				runtime.EventsEmit(app.ctx, "menu:move-focus", -1)
+			}
+		})
+		viewMenu.AddText("Focus Pane Right", keys.Combo("right", keys.CmdOrCtrlKey, keys.OptionOrAltKey), func(_ *menu.CallbackData) {
+			if app.ctx != nil {
+				runtime.EventsEmit(app.ctx, "menu:move-focus", 1)
+			}
+		})
 		day, err := app.OpenDay(launchDate)
 		if err == nil {
 			focusMenu := viewMenu.AddSubmenu("Focus Pane")

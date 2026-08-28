@@ -5,9 +5,9 @@ import {appAPI, DayData, DaySummary, Settings} from './api';
 import {DayWorkspace} from './components/DayWorkspace';
 import {SettingsView} from './components/SettingsView';
 import {Welcome} from './components/Welcome';
+import {WorkspaceAction, WorkspaceActionRequest} from './lib/workspace';
 
 type Screen = 'welcome' | 'settings' | 'day';
-type PaneFocusRequest = {position: number; revision: number};
 
 export default function App() {
     const [screen, setScreen] = useState<Screen>('welcome');
@@ -19,8 +19,8 @@ export default function App() {
     const [saveRequest, setSaveRequest] = useState(0);
     const [toggleCompletedRequest, setToggleCompletedRequest] = useState(0);
     const [newDoingRequest, setNewDoingRequest] = useState(0);
-    const [focusPaneRequest, setFocusPaneRequest] = useState<PaneFocusRequest>({
-        position: 0,
+    const [workspaceActionRequest, setWorkspaceActionRequest] = useState<WorkspaceActionRequest>({
+        action: {type: 'focus-position', position: 0},
         revision: 0,
     });
     const [dayPickerOpen, setDayPickerOpen] = useState(false);
@@ -93,6 +93,13 @@ export default function App() {
         });
     };
 
+    const requestWorkspaceAction = (action: WorkspaceAction) => {
+        setWorkspaceActionRequest(current => ({
+            action,
+            revision: current.revision + 1,
+        }));
+    };
+
     useEffect(() => {
         const initialise = async () => {
             await loadWelcome();
@@ -135,10 +142,22 @@ export default function App() {
         });
         const stopFocusPane = EventsOn('menu:focus-pane', (position: number) => {
             if (screen === 'day' && !dayPickerOpen) {
-                setFocusPaneRequest(current => ({
-                    position,
-                    revision: current.revision + 1,
-                }));
+                requestWorkspaceAction({type: 'focus-position', position});
+            }
+        });
+        const stopMoveFocus = EventsOn('menu:move-focus', (delta: -1 | 1) => {
+            if (screen === 'day' && !dayPickerOpen) {
+                requestWorkspaceAction({type: 'move-focus', delta});
+            }
+        });
+        const stopTogglePaneZoom = EventsOn('menu:toggle-pane-zoom', () => {
+            if (screen === 'day' && !dayPickerOpen) {
+                requestWorkspaceAction({type: 'toggle-zoom'});
+            }
+        });
+        const stopToggleTodo = EventsOn('menu:toggle-todo', () => {
+            if (screen === 'day' && !dayPickerOpen) {
+                requestWorkspaceAction({type: 'toggle-todo'});
             }
         });
         const stopFont = EventsOn('menu:font', (editorFont: string) => {
@@ -152,6 +171,9 @@ export default function App() {
             stopToggleCompleted();
             stopNewDoing();
             stopFocusPane();
+            stopMoveFocus();
+            stopTogglePaneZoom();
+            stopToggleTodo();
             stopFont();
             stopError();
         };
@@ -263,7 +285,7 @@ export default function App() {
                     saveRequest={saveRequest}
                     toggleCompletedRequest={toggleCompletedRequest}
                     newDoingRequest={newDoingRequest}
-                    focusPaneRequest={focusPaneRequest}
+                    workspaceActionRequest={workspaceActionRequest}
                     interactionDisabled={dayPickerOpen}
                     onError={message => setError(message)}
                 />

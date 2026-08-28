@@ -25,7 +25,7 @@ JM/
     └── 2026-08-28_3.jm.md
 ```
 
-Creating a day creates the Todo file and the first Doing file without truncating files that already exist. Numbered Doing files represent parallel work streams. Each date opens in its own native window, with Todo on the left and Doing streams arranged to its right.
+Creating a day creates the Todo file and the first Doing file without truncating files that already exist. Numbered Doing files represent parallel work streams. Each date opens in its own native window, with Todo on the left and Doing streams arranged to its right. You can hide Todo when you only need the journal streams, or zoom the focused pane to fill the workspace without closing or reloading the other editors.
 
 The editors preserve the underlying Markdown. Dates and timestamps use compact styling, and completed entries render with strikethrough while remaining editable text.
 
@@ -46,6 +46,9 @@ The app does not sort Todo entries or provide file synchronization.
 | `Command-O` or `Command-N` | Show the day picker in the current window |
 | `Command-T` | Create and focus the next numbered Doing stream |
 | `Command-1` … `Command-9` | Focus Todo, then the first eight open Doing streams |
+| `Command-Option-Left` or `Command-Option-Right` | Focus the previous or next visible pane, wrapping at either edge |
+| `Command-Shift-Z` | Toggle the focused pane between its normal width and the full workspace |
+| `Command-B` | Toggle the Todo pane |
 | `Command-,` | Open Settings |
 
 ## Install a release

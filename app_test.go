@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/wailsapp/wails/v2/pkg/menu"
+	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 )
 
 func TestDefaultSettingsUseDocumentsJM(t *testing.T) {
@@ -194,9 +195,35 @@ func TestDayMenuContainsOnlyCurrentWindowActions(t *testing.T) {
 	if menuContainsLabel(application, "New Window") {
 		t.Fatal("day menu retained the defunct New Window action")
 	}
-	for _, label := range []string{"Open Journal Day…", "New Doing Stream", "Todo", "Doing 1"} {
+	for _, label := range []string{
+		"Open Journal Day…",
+		"New Doing Stream",
+		"Toggle Todo Pane",
+		"Toggle Focused Pane Zoom",
+		"Toggle Completed Work",
+		"Focus Pane Left",
+		"Focus Pane Right",
+		"Todo",
+		"Doing 1",
+	} {
 		if !menuContainsLabel(application, label) {
 			t.Fatalf("day menu is missing %q", label)
+		}
+	}
+
+	accelerators := map[string]string{
+		"Toggle Todo Pane":         "Cmd+B",
+		"Toggle Focused Pane Zoom": "Cmd+Shift+Z",
+		"Focus Pane Left":          "Cmd+Option+LEFT",
+		"Focus Pane Right":         "Cmd+Option+RIGHT",
+	}
+	for label, want := range accelerators {
+		item := menuItemByLabel(application, label)
+		if item == nil || item.Accelerator == nil {
+			t.Fatalf("menu item %q has no accelerator", label)
+		}
+		if got := keys.Stringify(item.Accelerator, "darwin"); got != want {
+			t.Fatalf("accelerator for %q = %q, want %q", label, got, want)
 		}
 	}
 }
@@ -354,13 +381,19 @@ func TestEditorFontValidation(t *testing.T) {
 }
 
 func menuContainsLabel(parent *menu.Menu, label string) bool {
+	return menuItemByLabel(parent, label) != nil
+}
+
+func menuItemByLabel(parent *menu.Menu, label string) *menu.MenuItem {
 	for _, item := range parent.Items {
 		if item.Label == label {
-			return true
+			return item
 		}
-		if item.SubMenu != nil && menuContainsLabel(item.SubMenu, label) {
-			return true
+		if item.SubMenu != nil {
+			if child := menuItemByLabel(item.SubMenu, label); child != nil {
+				return child
+			}
 		}
 	}
-	return false
+	return nil
 }

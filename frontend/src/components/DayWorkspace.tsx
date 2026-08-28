@@ -1,6 +1,12 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {appAPI, DayData, JournalFile} from '../api';
 import {contentToLines, linesToContent} from '../lib/journal';
+import {
+    adjacentPanePath,
+    WorkspaceAction,
+    WorkspaceActionRequest,
+    workspaceActionForShortcut,
+} from '../lib/workspace';
 import {LineEditor} from './LineEditor';
 
 const diskPollInterval = 750;
@@ -10,7 +16,7 @@ type DayWorkspaceProps = {
     saveRequest: number;
     toggleCompletedRequest: number;
     newDoingRequest: number;
-    focusPaneRequest: {position: number; revision: number};
+    workspaceActionRequest: WorkspaceActionRequest;
     interactionDisabled: boolean;
     onError: (message: string) => void;
 };
@@ -20,20 +26,22 @@ export function DayWorkspace({
     saveRequest,
     toggleCompletedRequest,
     newDoingRequest,
-    focusPaneRequest,
+    workspaceActionRequest,
     interactionDisabled,
     onError,
 }: DayWorkspaceProps) {
     const [doingFiles, setDoingFiles] = useState<JournalFile[]>(day.doing);
     const files = useMemo(() => [day.todo, ...doingFiles], [day.todo, doingFiles]);
     const paths = useMemo(() => files.map(file => file.path), [files]);
-    const [activeDoingPath, setActiveDoingPath] = useState(doingFiles[0]?.path ?? '');
+    const [focusedPath, setFocusedPath] = useState(doingFiles[0]?.path ?? day.todo.path);
+    const [todoVisible, setTodoVisible] = useState(true);
+    const [zoomedPath, setZoomedPath] = useState('');
     const [editorFocus, setEditorFocus] = useState({path: '', revision: 0});
     const [diskContents, setDiskContents] = useState<Record<string, string>>(
         () => contentsByPath(files),
     );
     const handledNewDoingRequest = useRef(newDoingRequest);
-    const handledFocusRequest = useRef(focusPaneRequest.revision);
+    const handledWorkspaceAction = useRef(workspaceActionRequest.revision);
     const createChain = useRef<Promise<void>>(Promise.resolve());
     const mounted = useRef(true);
     const currentDate = useRef(day.date);
@@ -48,17 +56,21 @@ export function DayWorkspace({
     useEffect(() => {
         currentDate.current = day.date;
         setDoingFiles(day.doing);
-        setActiveDoingPath(day.doing[0]?.path ?? '');
+        setFocusedPath(day.doing[0]?.path ?? day.todo.path);
+        setTodoVisible(true);
+        setZoomedPath('');
         setEditorFocus({path: '', revision: 0});
         handledNewDoingRequest.current = newDoingRequest;
+        handledWorkspaceAction.current = workspaceActionRequest.revision;
         createChain.current = Promise.resolve();
     }, [day.date]);
 
     useEffect(() => {
-        if (!doingFiles.some(file => file.path === activeDoingPath)) {
-            setActiveDoingPath(doingFiles[0]?.path ?? '');
+        if (focusedPath === day.todo.path || doingFiles.some(file => file.path === focusedPath)) {
+            return;
         }
-    }, [activeDoingPath, doingFiles]);
+        setFocusedPath(doingFiles[0]?.path ?? (todoVisible ? day.todo.path : ''));
+    }, [day.todo.path, doingFiles, focusedPath, todoVisible]);
 
     useEffect(() => {
         setDiskContents(contentsByPath(files));
@@ -102,13 +114,12 @@ export function DayWorkspace({
 
     const focusPath = useCallback((path: string): boolean => {
         if (path === day.todo.path) {
-            setEditorFocus(current => ({path, revision: current.revision + 1}));
-            return true;
-        }
-        if (!doingFiles.some(file => file.path === path)) {
+            setTodoVisible(true);
+        } else if (!doingFiles.some(file => file.path === path)) {
             return false;
         }
-        setActiveDoingPath(path);
+        setFocusedPath(path);
+        setZoomedPath(current => current ? path : current);
         setEditorFocus(current => ({path, revision: current.revision + 1}));
         return true;
     }, [day.todo.path, doingFiles]);
@@ -120,33 +131,91 @@ export function DayWorkspace({
         return path ? focusPath(path) : false;
     }, [day.todo.path, doingFiles, focusPath]);
 
+    const visiblePaths = useMemo(
+        () => [...(todoVisible ? [day.todo.path] : []), ...doingFiles.map(file => file.path)],
+        [day.todo.path, doingFiles, todoVisible],
+    );
+
+    const moveFocus = useCallback((delta: -1 | 1): boolean => {
+        const path = adjacentPanePath(visiblePaths, focusedPath, delta);
+        return path ? focusPath(path) : false;
+    }, [focusPath, focusedPath, visiblePaths]);
+
+    const toggleZoom = useCallback((): boolean => {
+        if (zoomedPath) {
+            setZoomedPath('');
+            return true;
+        }
+        const path = visiblePaths.includes(focusedPath) ? focusedPath : visiblePaths[0];
+        if (!path) {
+            return false;
+        }
+        setZoomedPath(path);
+        if (path !== focusedPath) {
+            setFocusedPath(path);
+            setEditorFocus(current => ({path, revision: current.revision + 1}));
+        }
+        return true;
+    }, [focusedPath, visiblePaths, zoomedPath]);
+
+    const toggleTodo = useCallback((): boolean => {
+        if (!todoVisible) {
+            setTodoVisible(true);
+            return true;
+        }
+
+        setTodoVisible(false);
+        if (zoomedPath === day.todo.path) {
+            setZoomedPath('');
+        }
+        if (focusedPath === day.todo.path) {
+            const path = doingFiles[0]?.path ?? '';
+            setFocusedPath(path);
+            if (path) {
+                setEditorFocus(current => ({path, revision: current.revision + 1}));
+            }
+        }
+        return true;
+    }, [day.todo.path, doingFiles, focusedPath, todoVisible, zoomedPath]);
+
+    const handleWorkspaceAction = useCallback((action: WorkspaceAction): boolean => {
+        switch (action.type) {
+            case 'focus-position':
+                return focusPosition(action.position);
+            case 'move-focus':
+                return moveFocus(action.delta);
+            case 'toggle-zoom':
+                return toggleZoom();
+            case 'toggle-todo':
+                return toggleTodo();
+        }
+    }, [focusPosition, moveFocus, toggleTodo, toggleZoom]);
+
     useEffect(() => {
         const shortcut = (event: KeyboardEvent) => {
             if (interactionDisabled) {
                 return;
             }
-            if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) {
+            const action = workspaceActionForShortcut(event);
+            if (!action) {
                 return;
             }
-            if (!/^[1-9]$/.test(event.key)) {
-                return;
-            }
-            if (focusPosition(Number(event.key))) {
+            if (handleWorkspaceAction(action)) {
                 event.preventDefault();
                 event.stopPropagation();
             }
         };
         window.addEventListener('keydown', shortcut, true);
         return () => window.removeEventListener('keydown', shortcut, true);
-    }, [focusPosition, interactionDisabled]);
+    }, [handleWorkspaceAction, interactionDisabled]);
 
     useEffect(() => {
-        if (handledFocusRequest.current === focusPaneRequest.revision) {
+        if (handledWorkspaceAction.current === workspaceActionRequest.revision) {
             return;
         }
-        handledFocusRequest.current = focusPaneRequest.revision;
-        focusPosition(focusPaneRequest.position);
-    }, [focusPaneRequest, focusPosition]);
+        handledWorkspaceAction.current = workspaceActionRequest.revision;
+        handleWorkspaceAction(workspaceActionRequest.action);
+    }, [handleWorkspaceAction, workspaceActionRequest]);
 
     useEffect(() => {
         const count = newDoingRequest - handledNewDoingRequest.current;
@@ -166,7 +235,8 @@ export function DayWorkspace({
                         ? current
                         : [...current, file].sort((left, right) => left.streamIndex - right.streamIndex));
                     setDiskContents(current => ({...current, [file.path]: file.content}));
-                    setActiveDoingPath(file.path);
+                    setFocusedPath(file.path);
+                    setZoomedPath(current => current ? file.path : current);
                     setEditorFocus(current => ({path: file.path, revision: current.revision + 1}));
                 } catch (reason) {
                     onError(errorMessage(reason));
@@ -178,13 +248,15 @@ export function DayWorkspace({
     return (
         <main className="workspace-shell">
             <div className="window-drag-region" aria-hidden="true"/>
-            <section className="pane-strip">
+            <section className={`pane-strip${zoomedPath ? ' is-zoomed' : ''}`}>
                 <TodoPane
                     file={day.todo}
                     saveRequest={saveRequest}
                     diskContent={diskContents[day.todo.path] ?? day.todo.content}
                     onDiskContent={updateDiskContent}
                     focusRequest={editorFocus.path === day.todo.path ? editorFocus.revision : 0}
+                    hidden={!todoVisible || Boolean(zoomedPath && zoomedPath !== day.todo.path)}
+                    onFocus={() => setFocusedPath(day.todo.path)}
                 />
                 {doingFiles.length > 0 ? doingFiles.map(file => (
                     <DoingPane
@@ -194,12 +266,13 @@ export function DayWorkspace({
                         diskContent={diskContents[file.path] ?? file.content}
                         onDiskContent={updateDiskContent}
                         toggleCompletedRequest={toggleCompletedRequest}
-                        active={file.path === activeDoingPath}
-                        onFocus={() => setActiveDoingPath(file.path)}
+                        active={file.path === focusedPath}
+                        onFocus={() => setFocusedPath(file.path)}
                         focusRequest={editorFocus.path === file.path ? editorFocus.revision : 0}
+                        hidden={Boolean(zoomedPath && zoomedPath !== file.path)}
                     />
                 )) : (
-                    <div className="missing-stream">
+                    <div className="missing-stream" hidden={Boolean(zoomedPath)}>
                         <h2>No Doing streams</h2>
                         <p>This day has no Doing file yet.</p>
                     </div>
@@ -215,6 +288,8 @@ type DiskAwarePaneProps = {
     diskContent: string;
     onDiskContent: (path: string, content: string) => void;
     focusRequest: number;
+    hidden: boolean;
+    onFocus: () => void;
 };
 
 function TodoPane({
@@ -223,11 +298,13 @@ function TodoPane({
     diskContent,
     onDiskContent,
     focusRequest,
+    hidden,
+    onFocus,
 }: DiskAwarePaneProps) {
     const journal = useJournalFile(file, saveRequest, diskContent, onDiskContent);
 
     return (
-        <article className="journal-pane todo-pane">
+        <article className="journal-pane todo-pane" hidden={hidden}>
             <FileBar
                 filename={file.name}
                 saveState={journal.saveState}
@@ -238,6 +315,7 @@ function TodoPane({
                 kind="todo"
                 lines={journal.lines}
                 onChange={journal.update}
+                onFocus={onFocus}
                 focusRequest={focusRequest}
             />
         </article>
@@ -259,6 +337,7 @@ function DoingPane({
     active,
     onFocus,
     focusRequest,
+    hidden,
 }: DoingPaneProps) {
     const journal = useJournalFile(file, saveRequest, diskContent, onDiskContent);
     const [showCompleted, setShowCompleted] = useState(false);
@@ -275,7 +354,7 @@ function DoingPane({
     }, [active, toggleCompletedRequest]);
 
     return (
-        <article className="journal-pane doing-pane">
+        <article className="journal-pane doing-pane" hidden={hidden}>
             <FileBar
                 filename={file.name}
                 saveState={journal.saveState}
