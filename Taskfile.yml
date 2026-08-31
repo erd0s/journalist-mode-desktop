@@ -1,0 +1,107 @@
+version: '3'
+
+vars:
+  APP_NAME: "Journalist Mode"
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+
+tasks:
+  generate:bindings:
+    summary: Generates Wails TypeScript bindings
+    sources:
+      - "*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - frontend/bindings/**/*
+    cmds:
+      - wails3 generate bindings -clean=true -ts
+
+  install:frontend:
+    summary: Installs frontend dependencies
+    sources:
+      - frontend/package.json
+      - frontend/package-lock.json
+    generates:
+      - frontend/node_modules/**/*
+    cmds:
+      - npm install --prefix frontend
+
+  build:frontend:
+    summary: Builds the embedded frontend
+    deps:
+      - install:frontend
+      - generate:bindings
+    sources:
+      - frontend/src/**/*
+      - frontend/bindings/**/*
+      - frontend/index.html
+      - frontend/package.json
+      - frontend/package-lock.json
+      - frontend/tsconfig.json
+      - frontend/vite.config.ts
+    generates:
+      - frontend/dist/**/*
+    cmds:
+      - npm run build --prefix frontend
+
+  generate:icons:
+    summary: Generates native icons from the app artwork
+    sources:
+      - build/appicon.png
+    generates:
+      - build/darwin/icons.icns
+      - build/windows/icon.ico
+    cmds:
+      - wails3 generate icons -input build/appicon.png -macfilename build/darwin/icons.icns -windowsfilename build/windows/icon.ico
+
+  build:
+    summary: Builds the macOS application binary
+    deps:
+      - build:frontend
+      - generate:icons
+    cmds:
+      - mkdir -p build/bin
+      - go build {{.BUILD_FLAGS}} -o "build/bin/{{.APP_NAME}}"
+    vars:
+      BUILD_FLAGS: '{{if eq .DEV "true"}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production -trimpath -buildvcs=false -ldflags="-w -s"{{end}}'
+    env:
+      GOOS: darwin
+      CGO_ENABLED: 1
+      CGO_CFLAGS: "-mmacosx-version-min=12.0"
+      CGO_LDFLAGS: "-mmacosx-version-min=12.0"
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+
+  package:
+    summary: Creates the macOS .app bundle
+    deps:
+      - build
+    cmds:
+      - rm -rf "build/bin/{{.APP_NAME}}.app"
+      - mkdir -p "build/bin/{{.APP_NAME}}.app/Contents/MacOS" "build/bin/{{.APP_NAME}}.app/Contents/Resources"
+      - cp "build/bin/{{.APP_NAME}}" "build/bin/{{.APP_NAME}}.app/Contents/MacOS/{{.APP_NAME}}"
+      - cp build/darwin/Info.plist "build/bin/{{.APP_NAME}}.app/Contents/Info.plist"
+      - cp build/darwin/icons.icns "build/bin/{{.APP_NAME}}.app/Contents/Resources/icons.icns"
+
+  frontend:dev:
+    summary: Runs Vite for Wails development mode
+    deps:
+      - install:frontend
+      - generate:bindings
+    cmds:
+      - npm run dev --prefix frontend -- --port {{.VITE_PORT}} --strictPort
+
+  run:
+    summary: Runs the development app bundle
+    cmds:
+      - rm -rf "build/bin/{{.APP_NAME}}.dev.app"
+      - mkdir -p "build/bin/{{.APP_NAME}}.dev.app/Contents/MacOS" "build/bin/{{.APP_NAME}}.dev.app/Contents/Resources"
+      - cp "build/bin/{{.APP_NAME}}" "build/bin/{{.APP_NAME}}.dev.app/Contents/MacOS/{{.APP_NAME}}"
+      - cp build/darwin/Info.dev.plist "build/bin/{{.APP_NAME}}.dev.app/Contents/Info.plist"
+      - cp build/darwin/icons.icns "build/bin/{{.APP_NAME}}.dev.app/Contents/Resources/icons.icns"
+      - codesign --force --deep --sign - "build/bin/{{.APP_NAME}}.dev.app"
+      - '"build/bin/{{.APP_NAME}}.dev.app/Contents/MacOS/{{.APP_NAME}}"'
+
+  dev:
+    summary: Runs the app with live frontend and Go reloads
+    cmds:
+      - wails3 dev -config build/config.yml -port {{.VITE_PORT}}

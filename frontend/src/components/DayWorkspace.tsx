@@ -2,32 +2,45 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {appAPI, DayData, JournalFile} from '../api';
 import {contentToLines, linesToContent} from '../lib/journal';
 import {
+    aggregateSaveState,
     adjacentPanePath,
+    createSaveBatch,
     nextAllDoingHistoryVisibility,
+    recordSaveBatchResult,
+    SaveBatch,
     WorkspaceAction,
     WorkspaceActionRequest,
+    WorkspaceSaveState,
     workspaceActionForShortcut,
 } from '../lib/workspace';
 import {LineEditor} from './LineEditor';
 
 const diskPollInterval = 750;
 
+export type {WorkspaceSaveState} from '../lib/workspace';
+
 type DayWorkspaceProps = {
     day: DayData;
     saveRequest: number;
+    discardRequest: number;
     newDoingRequest: number;
     workspaceActionRequest: WorkspaceActionRequest;
     interactionDisabled: boolean;
     onError: (message: string) => void;
+    onSaveStateChange: (state: WorkspaceSaveState) => void;
+    onSaveComplete: (revision: number, succeeded: boolean) => void;
 };
 
 export function DayWorkspace({
     day,
     saveRequest,
+    discardRequest,
     newDoingRequest,
     workspaceActionRequest,
     interactionDisabled,
     onError,
+    onSaveStateChange,
+    onSaveComplete,
 }: DayWorkspaceProps) {
     const [doingFiles, setDoingFiles] = useState<JournalFile[]>(day.doing);
     const files = useMemo(() => [day.todo, ...doingFiles], [day.todo, doingFiles]);
@@ -40,9 +53,14 @@ export function DayWorkspace({
     const [diskContents, setDiskContents] = useState<Record<string, string>>(
         () => contentsByPath(files),
     );
+    const saveStates = useRef<Record<string, WorkspaceSaveState>>(
+        Object.fromEntries(files.map(file => [file.path, 'saved'])),
+    );
     const handledNewDoingRequest = useRef(newDoingRequest);
     const handledWorkspaceAction = useRef(workspaceActionRequest.revision);
     const createChain = useRef<Promise<void>>(Promise.resolve());
+    const saveBatches = useRef(new Map<number, SaveBatch>());
+    const preparedSaveRequest = useRef(saveRequest);
     const mounted = useRef(true);
     const currentDate = useRef(day.date);
 
@@ -61,6 +79,11 @@ export function DayWorkspace({
         setZoomedPath('');
         setDoingHistoryVisible({});
         setEditorFocus({path: '', revision: 0});
+        saveStates.current = Object.fromEntries(
+            [day.todo, ...day.doing].map(file => [file.path, 'saved']),
+        );
+        saveBatches.current.clear();
+        preparedSaveRequest.current = saveRequest;
         handledNewDoingRequest.current = newDoingRequest;
         handledWorkspaceAction.current = workspaceActionRequest.revision;
         createChain.current = Promise.resolve();
@@ -76,6 +99,27 @@ export function DayWorkspace({
     useEffect(() => {
         setDiskContents(contentsByPath(files));
     }, [files]);
+
+    useEffect(() => {
+        const next: Record<string, WorkspaceSaveState> = {};
+        for (const path of paths) {
+            next[path] = saveStates.current[path] ?? 'saved';
+        }
+        saveStates.current = next;
+        const states = paths.map(path => next[path]);
+        onSaveStateChange(aggregateSaveState(states));
+    }, [onSaveStateChange, paths]);
+
+    useEffect(() => {
+        if (preparedSaveRequest.current === saveRequest) {
+            return;
+        }
+        // Freeze the participants as soon as a Save All begins. A Doing stream
+        // created while saves are in flight already exists safely on disk and
+        // must not make this batch wait for a completion it never requested.
+        preparedSaveRequest.current = saveRequest;
+        saveBatches.current.set(saveRequest, createSaveBatch(paths));
+    }, [saveRequest]);
 
     useEffect(() => {
         let stopped = false;
@@ -113,6 +157,35 @@ export function DayWorkspace({
             : {...current, [path]: nextContent});
     }, []);
 
+    const updateSaveState = useCallback((path: string, state: WorkspaceSaveState) => {
+        if (saveStates.current[path] === state) {
+            return;
+        }
+        const next = {...saveStates.current, [path]: state};
+        saveStates.current = next;
+        onSaveStateChange(aggregateSaveState(
+            paths.map(currentPath => next[currentPath] ?? 'saved'),
+        ));
+    }, [onSaveStateChange, paths]);
+
+    const reportSaveComplete = useCallback((
+        path: string,
+        revision: number,
+        succeeded: boolean,
+    ) => {
+        let batch = saveBatches.current.get(revision);
+        if (!batch) {
+            batch = createSaveBatch(paths);
+            saveBatches.current.set(revision, batch);
+        }
+        const batchSucceeded = recordSaveBatchResult(batch, path, succeeded);
+        if (batchSucceeded === null) {
+            return;
+        }
+        saveBatches.current.delete(revision);
+        onSaveComplete(revision, batchSucceeded);
+    }, [onSaveComplete, paths]);
+
     const focusPath = useCallback((path: string): boolean => {
         if (path === day.todo.path) {
             setTodoVisible(true);
@@ -125,12 +198,10 @@ export function DayWorkspace({
         return true;
     }, [day.todo.path, doingFiles]);
 
-    const focusPosition = useCallback((position: number): boolean => {
-        const path = position === 1
-            ? day.todo.path
-            : doingFiles[position - 2]?.path;
+    const focusDoing = useCallback((streamIndex: number): boolean => {
+        const path = doingFiles.find(file => file.streamIndex === streamIndex)?.path;
         return path ? focusPath(path) : false;
-    }, [day.todo.path, doingFiles, focusPath]);
+    }, [doingFiles, focusPath]);
 
     const visiblePaths = useMemo(
         () => [...(todoVisible ? [day.todo.path] : []), ...doingFiles.map(file => file.path)],
@@ -162,22 +233,27 @@ export function DayWorkspace({
     const toggleTodo = useCallback((): boolean => {
         if (!todoVisible) {
             setTodoVisible(true);
+            setFocusedPath(day.todo.path);
+            setZoomedPath(current => current ? day.todo.path : current);
+            setEditorFocus(current => ({path: day.todo.path, revision: current.revision + 1}));
             return true;
+        }
+
+        if (focusedPath !== day.todo.path) {
+            return focusPath(day.todo.path);
         }
 
         setTodoVisible(false);
         if (zoomedPath === day.todo.path) {
             setZoomedPath('');
         }
-        if (focusedPath === day.todo.path) {
-            const path = doingFiles[0]?.path ?? '';
-            setFocusedPath(path);
-            if (path) {
-                setEditorFocus(current => ({path, revision: current.revision + 1}));
-            }
+        const path = doingFiles[0]?.path ?? '';
+        setFocusedPath(path);
+        if (path) {
+            setEditorFocus(current => ({path, revision: current.revision + 1}));
         }
         return true;
-    }, [day.todo.path, doingFiles, focusedPath, todoVisible, zoomedPath]);
+    }, [day.todo.path, doingFiles, focusPath, focusedPath, todoVisible, zoomedPath]);
 
     const toggleAllDoingHistory = useCallback((): boolean => {
         if (doingFiles.length === 0) {
@@ -208,21 +284,21 @@ export function DayWorkspace({
 
     const handleWorkspaceAction = useCallback((action: WorkspaceAction): boolean => {
         switch (action.type) {
-            case 'focus-position':
-                return focusPosition(action.position);
+            case 'focus-todo':
+                return toggleTodo();
+            case 'focus-doing':
+                return focusDoing(action.streamIndex);
             case 'move-focus':
                 return moveFocus(action.delta);
             case 'toggle-zoom':
                 return toggleZoom();
-            case 'toggle-todo':
-                return toggleTodo();
             case 'toggle-all-doing-history':
                 return toggleAllDoingHistory();
             case 'toggle-focused-doing-history':
                 return toggleFocusedDoingHistory();
         }
     }, [
-        focusPosition,
+        focusDoing,
         moveFocus,
         toggleAllDoingHistory,
         toggleFocusedDoingHistory,
@@ -232,7 +308,9 @@ export function DayWorkspace({
 
     useEffect(() => {
         const shortcut = (event: KeyboardEvent) => {
-            if (interactionDisabled) {
+            // The native application menu owns these accelerators in Wails;
+            // this listener keeps the browser preview and tests functional.
+            if (interactionDisabled || appAPI.isNative()) {
                 return;
             }
             const action = workspaceActionForShortcut(event);
@@ -291,8 +369,11 @@ export function DayWorkspace({
                 <TodoPane
                     file={day.todo}
                     saveRequest={saveRequest}
+                    discardRequest={discardRequest}
                     diskContent={diskContents[day.todo.path] ?? day.todo.content}
                     onDiskContent={updateDiskContent}
+                    onSaveState={updateSaveState}
+                    onSaveComplete={reportSaveComplete}
                     focusRequest={editorFocus.path === day.todo.path ? editorFocus.revision : 0}
                     hidden={!todoVisible || Boolean(zoomedPath && zoomedPath !== day.todo.path)}
                     onFocus={() => setFocusedPath(day.todo.path)}
@@ -302,8 +383,11 @@ export function DayWorkspace({
                         file={file}
                         key={file.path}
                         saveRequest={saveRequest}
+                        discardRequest={discardRequest}
                         diskContent={diskContents[file.path] ?? file.content}
                         onDiskContent={updateDiskContent}
+                        onSaveState={updateSaveState}
+                        onSaveComplete={reportSaveComplete}
                         showCompleted={Boolean(doingHistoryVisible[file.path])}
                         onFocus={() => setFocusedPath(file.path)}
                         focusRequest={editorFocus.path === file.path ? editorFocus.revision : 0}
@@ -323,8 +407,11 @@ export function DayWorkspace({
 type DiskAwarePaneProps = {
     file: JournalFile;
     saveRequest: number;
+    discardRequest: number;
     diskContent: string;
     onDiskContent: (path: string, content: string) => void;
+    onSaveState: (path: string, state: WorkspaceSaveState) => void;
+    onSaveComplete: (path: string, revision: number, succeeded: boolean) => void;
     focusRequest: number;
     hidden: boolean;
     onFocus: () => void;
@@ -333,13 +420,24 @@ type DiskAwarePaneProps = {
 function TodoPane({
     file,
     saveRequest,
+    discardRequest,
     diskContent,
     onDiskContent,
+    onSaveState,
+    onSaveComplete,
     focusRequest,
     hidden,
     onFocus,
 }: DiskAwarePaneProps) {
-    const journal = useJournalFile(file, saveRequest, diskContent, onDiskContent);
+    const journal = useJournalFile(
+        file,
+        saveRequest,
+        discardRequest,
+        diskContent,
+        onDiskContent,
+        onSaveState,
+        onSaveComplete,
+    );
 
     return (
         <article className="journal-pane todo-pane" hidden={hidden}>
@@ -368,14 +466,25 @@ type DoingPaneProps = DiskAwarePaneProps & {
 function DoingPane({
     file,
     saveRequest,
+    discardRequest,
     diskContent,
     onDiskContent,
+    onSaveState,
+    onSaveComplete,
     showCompleted,
     onFocus,
     focusRequest,
     hidden,
 }: DoingPaneProps) {
-    const journal = useJournalFile(file, saveRequest, diskContent, onDiskContent);
+    const journal = useJournalFile(
+        file,
+        saveRequest,
+        discardRequest,
+        diskContent,
+        onDiskContent,
+        onSaveState,
+        onSaveComplete,
+    );
 
     return (
         <article className="journal-pane doing-pane" hidden={hidden}>
@@ -429,13 +538,16 @@ function FileBar({filename, saveState, onUseDisk, onOverwrite}: FileBarProps) {
     );
 }
 
-type SaveState = 'saved' | 'dirty' | 'saving' | 'conflict' | 'error';
+type SaveState = WorkspaceSaveState;
 
 function useJournalFile(
     file: JournalFile,
     saveRequest: number,
+    discardRequest: number,
     diskContent: string,
     onDiskContent: (path: string, content: string) => void,
+    onSaveState: (path: string, state: WorkspaceSaveState) => void,
+    onSaveComplete: (path: string, revision: number, succeeded: boolean) => void,
 ) {
     const [lines, setLines] = useState(() => contentToLines(file.content));
     const [saveState, setSaveState] = useState<SaveState>('saved');
@@ -445,7 +557,18 @@ function useJournalFile(
     const external = useRef<string | null>(null);
     const dirty = useRef(false);
     const handledSaveRequest = useRef(saveRequest);
+    const handledDiscardRequest = useRef(discardRequest);
     const saveChain = useRef<Promise<void>>(Promise.resolve());
+    const onSaveStateRef = useRef(onSaveState);
+    const onSaveCompleteRef = useRef(onSaveComplete);
+
+    onSaveStateRef.current = onSaveState;
+    onSaveCompleteRef.current = onSaveComplete;
+
+    const updateSaveState = (state: SaveState) => {
+        setSaveState(state);
+        onSaveStateRef.current(file.path, state);
+    };
 
     useEffect(() => {
         setLines(contentToLines(file.content));
@@ -455,8 +578,9 @@ function useJournalFile(
         external.current = null;
         dirty.current = false;
         handledSaveRequest.current = saveRequest;
+        handledDiscardRequest.current = discardRequest;
         saveChain.current = Promise.resolve();
-        setSaveState('saved');
+        updateSaveState('saved');
     }, [file.path, file.content]);
 
     useEffect(() => {
@@ -467,7 +591,7 @@ function useJournalFile(
 
         if (diskContent === baseline.current) {
             external.current = null;
-            setSaveState(dirty.current ? 'dirty' : 'saved');
+            updateSaveState(dirty.current ? 'dirty' : 'saved');
             return;
         }
 
@@ -476,7 +600,7 @@ function useJournalFile(
             baseline.current = diskContent;
             external.current = null;
             setLines(contentToLines(diskContent));
-            setSaveState('saved');
+            updateSaveState('saved');
             return;
         }
 
@@ -484,23 +608,24 @@ function useJournalFile(
             baseline.current = diskContent;
             external.current = null;
             dirty.current = false;
-            setSaveState('saved');
+            updateSaveState('saved');
             return;
         }
 
         external.current = diskContent;
-        setSaveState('conflict');
+        updateSaveState('conflict');
     }, [diskContent]);
 
-    const queueSave = (force: boolean) => {
-        saveChain.current = saveChain.current.then(async () => {
+    const queueSave = (force: boolean): Promise<SaveState> => {
+        const operation = saveChain.current.then(async (): Promise<SaveState> => {
             if (!dirty.current && !force) {
-                return;
+                updateSaveState('saved');
+                return 'saved';
             }
 
             const saving = content.current;
             const expected = baseline.current;
-            setSaveState('saving');
+            updateSaveState('saving');
             try {
                 const result = await appAPI.saveFile(file.path, saving, expected, force);
                 if (result.conflict) {
@@ -510,33 +635,38 @@ function useJournalFile(
                         baseline.current = result.content;
                         external.current = null;
                         dirty.current = false;
-                        setSaveState('saved');
-                        return;
+                        updateSaveState('saved');
+                        return 'saved';
                     }
                     external.current = result.content;
-                    setSaveState('conflict');
-                    return;
+                    updateSaveState('conflict');
+                    return 'conflict';
                 }
 
                 baseline.current = saving;
                 if (!force && external.current !== null && external.current !== saving) {
-                    setSaveState('conflict');
-                    return;
+                    updateSaveState('conflict');
+                    return 'conflict';
                 }
                 external.current = null;
                 observedDisk.current = saving;
                 onDiskContent(file.path, saving);
                 if (content.current === saving) {
                     dirty.current = false;
-                    setSaveState('saved');
-                    return;
+                    updateSaveState('saved');
+                    return 'saved';
                 }
                 dirty.current = true;
-                setSaveState('dirty');
+                updateSaveState('dirty');
+                return 'dirty';
             } catch {
-                setSaveState(external.current === null ? 'error' : 'conflict');
+                const state = external.current === null ? 'error' : 'conflict';
+                updateSaveState(state);
+                return state;
             }
         });
+        saveChain.current = operation.then(() => undefined);
+        return operation;
     };
 
     useEffect(() => {
@@ -544,14 +674,30 @@ function useJournalFile(
             return;
         }
         handledSaveRequest.current = saveRequest;
-        queueSave(false);
+        void queueSave(false).then(state => {
+            onSaveCompleteRef.current(file.path, saveRequest, state === 'saved');
+        });
     }, [file.path, saveRequest]);
+
+    useEffect(() => {
+        if (handledDiscardRequest.current === discardRequest) {
+            return;
+        }
+        handledDiscardRequest.current = discardRequest;
+        const nextContent = observedDisk.current;
+        content.current = nextContent;
+        baseline.current = nextContent;
+        external.current = null;
+        dirty.current = false;
+        setLines(contentToLines(nextContent));
+        updateSaveState('saved');
+    }, [discardRequest, file.path]);
 
     const update = (nextLines: string[]) => {
         setLines(nextLines);
         content.current = linesToContent(nextLines);
         dirty.current = true;
-        setSaveState(external.current === null ? 'dirty' : 'conflict');
+        updateSaveState(external.current === null ? 'dirty' : 'conflict');
     };
 
     const useDiskVersion = () => {
@@ -565,7 +711,7 @@ function useJournalFile(
         external.current = null;
         dirty.current = false;
         setLines(contentToLines(nextContent));
-        setSaveState('saved');
+        updateSaveState('saved');
     };
 
     return {
@@ -573,7 +719,7 @@ function useJournalFile(
         update,
         saveState,
         useDiskVersion,
-        overwriteDisk: () => queueSave(true),
+        overwriteDisk: () => void queueSave(true),
     };
 }
 

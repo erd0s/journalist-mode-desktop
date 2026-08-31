@@ -171,9 +171,11 @@ function journalKeymap(kind: 'doing' | 'todo') {
         action: 'enter' | 'finish' | 'cancel',
     ): boolean => {
         const lines = contentToLines(view.state.doc.toString());
-        const currentLine = view.state.doc.lineAt(view.state.selection.main.head).number - 1;
+        const cursorOffset = view.state.selection.main.head;
+        const currentLine = view.state.doc.lineAt(cursorOffset).number - 1;
+        const todoInsertAfter = kind === 'todo' && cursorOffset === 0 ? -1 : currentLine;
         const result = action === 'enter'
-            ? (kind === 'doing' ? appendDoingChild(lines) : insertTodoLine(lines, currentLine))
+            ? (kind === 'doing' ? appendDoingChild(lines) : insertTodoLine(lines, todoInsertAfter))
             : (kind === 'doing'
                 ? finishDeepestDoing(lines, action === 'cancel')
                 : finishTodo(lines, currentLine, action === 'cancel'));

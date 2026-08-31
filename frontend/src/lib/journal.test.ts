@@ -7,6 +7,7 @@ import {
     ensureTodoDate,
     finishDeepestDoing,
     finishTodo,
+    insertTodoLine,
 } from './journal';
 
 const now = new Date(2026, 7, 28, 10, 46);
@@ -34,6 +35,21 @@ describe('JM Doing behavior', () => {
 });
 
 describe('JM TODO behavior', () => {
+    it('inserts above any first line when requested before index zero', () => {
+        expect(insertTodoLine(['# vault', '[2026-08-28] keep'], -1)).toEqual({
+            lines: ['', '# vault', '[2026-08-28] keep'],
+            focusIndex: 0,
+        });
+        expect(insertTodoLine(['[2026-08-28] testing', '', '# hello'], -1)).toEqual({
+            lines: ['', '[2026-08-28] testing', '', '# hello'],
+            focusIndex: 0,
+        });
+        expect(insertTodoLine(['# vault'], 0)).toEqual({
+            lines: ['# vault', ''],
+            focusIndex: 1,
+        });
+    });
+
     it('prepends a creation date only to task lines', () => {
         expect(ensureTodoDate('write tests', now)).toBe('[2026-08-28] write tests');
         expect(ensureTodoDate('# Work', now)).toBe('# Work');

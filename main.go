@@ -2,198 +2,307 @@ package main
 
 import (
 	"embed"
-	"os"
+	"fmt"
+	"io/fs"
+	"log"
+	"net/url"
+	"runtime"
 	"strconv"
-	"strings"
+	"sync"
 
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/menu"
-	"github.com/wailsapp/wails/v2/pkg/menu/keys"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	"github.com/wailsapp/wails/v2/pkg/options/mac"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
 
+const (
+	applicationName = "Journalist Mode"
+	welcomeWindow   = "welcome"
+)
+
+var singleInstanceKey = [32]byte{
+	0x6a, 0x6f, 0x75, 0x72, 0x6e, 0x61, 0x6c, 0x69,
+	0x73, 0x74, 0x2d, 0x6d, 0x6f, 0x64, 0x65, 0x2d,
+	0x64, 0x65, 0x73, 0x6b, 0x74, 0x6f, 0x70, 0x2d,
+	0x77, 0x69, 0x6e, 0x64, 0x6f, 0x77, 0x73, 0x21,
+}
+
+// Desktop owns native windows. Journal data remains in App so every window
+// shares one service and one file lock inside a single macOS application.
+type Desktop struct {
+	native        *application.App
+	windowMu      sync.Mutex
+	closeMu       sync.Mutex
+	approvedClose map[uint]bool
+}
+
 func main() {
-	launchDate := launchDateFromArgs(os.Args[1:])
-	app := NewApp(launchDate)
-	width, height := 1480, 900
-	minWidth, minHeight := 900, 640
-	disableResize := false
-	if launchDate == "" {
-		width, height = 900, 640
-		minWidth, minHeight = width, height
-		disableResize = true
+	frontendAssets, err := fs.Sub(assets, "frontend/dist")
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	// Create application with options
-	err := wails.Run(&options.App{
-		Title:         "Journalist Mode",
-		Width:         width,
-		Height:        height,
-		MinWidth:      minWidth,
-		MinHeight:     minHeight,
-		DisableResize: disableResize,
-		Menu:          applicationMenu(app),
-		AssetServer: &assetserver.Options{
-			Assets: assets,
+	service := NewApp()
+	var desktop *Desktop
+	native := application.New(application.Options{
+		Name:        applicationName,
+		Description: "A plain-text workspace for parallel streams of thought.",
+		Assets: application.AssetOptions{
+			Handler: application.AssetFileServerFS(frontendAssets),
 		},
-		BackgroundColour: &options.RGBA{R: 244, G: 241, B: 235, A: 1},
-		Mac: &mac.Options{
-			TitleBar: mac.TitleBarHiddenInset(),
+		Mac: application.MacOptions{
+			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
-		OnStartup:  app.startup,
-		OnShutdown: app.shutdown,
-		Bind: []interface{}{
-			app,
+		Windows: application.WindowsOptions{
+			DisableQuitOnLastWindowClosed: true,
+		},
+		Linux: application.LinuxOptions{
+			DisableQuitOnLastWindowClosed: true,
+			ProgramName:                   applicationName,
+		},
+		Services: []application.Service{application.NewService(service)},
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID:      "com.dirkstewart.journalist-mode",
+			EncryptionKey: singleInstanceKey,
+			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
+				if desktop != nil {
+					desktop.OpenWelcomeWindow()
+				}
+			},
 		},
 	})
 
-	if err != nil {
-		println("Error:", err.Error())
+	desktop = &Desktop{
+		native:        native,
+		approvedClose: make(map[uint]bool),
+	}
+	service.desktop = desktop
+
+	native.Menu.Set(applicationMenu(native, service, desktop))
+	native.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(*application.ApplicationEvent) {
+		if len(native.Window.GetAll()) == 0 {
+			desktop.OpenWelcomeWindow()
+		}
+	})
+	desktop.OpenWelcomeWindow()
+
+	if err := native.Run(); err != nil {
+		log.Fatal(err)
 	}
 }
 
-func applicationMenu(app *App) *menu.Menu {
-	application := menu.NewMenu()
-	application.Append(menu.AppMenu())
-	fileMenu := application.AddSubmenu("File")
-	fileMenu.AddText("Open Journal Day…", keys.CmdOrCtrl("o"), func(_ *menu.CallbackData) {
-		if app.ctx != nil {
-			runtime.EventsEmit(app.ctx, "menu:open")
+func (d *Desktop) OpenWelcomeWindow() {
+	d.windowMu.Lock()
+	defer d.windowMu.Unlock()
+
+	if existing, ok := d.native.Window.GetByName(welcomeWindow); ok {
+		existing.Show()
+		existing.Restore()
+		existing.Focus()
+		return
+	}
+
+	window := d.native.Window.NewWithOptions(baseWindowOptions(application.WebviewWindowOptions{
+		Name:          welcomeWindow,
+		Title:         applicationName,
+		Width:         900,
+		Height:        640,
+		MinWidth:      900,
+		MinHeight:     640,
+		DisableResize: true,
+		URL:           "/",
+	}))
+	d.protectClose(window)
+	window.Show()
+	window.Focus()
+}
+
+func (d *Desktop) OpenDayWindow(date string) string {
+	d.windowMu.Lock()
+	defer d.windowMu.Unlock()
+
+	name := dayWindowName(date)
+	if existing, ok := d.native.Window.GetByName(name); ok {
+		existing.Show()
+		existing.Restore()
+		existing.Focus()
+		return "focused"
+	}
+
+	window := d.native.Window.NewWithOptions(baseWindowOptions(application.WebviewWindowOptions{
+		Name:      name,
+		Title:     fmt.Sprintf("%s — %s", date, applicationName),
+		Width:     1480,
+		Height:    900,
+		MinWidth:  900,
+		MinHeight: 640,
+		URL:       "/?day=" + url.QueryEscape(date),
+	}))
+	d.protectClose(window)
+	window.Show()
+	window.Focus()
+	return "opened"
+}
+
+func baseWindowOptions(options application.WebviewWindowOptions) application.WebviewWindowOptions {
+	options.InitialPosition = application.WindowCentered
+	options.BackgroundColour = application.NewRGB(244, 241, 235)
+	options.UseApplicationMenu = true
+	options.Mac.TitleBar = application.MacTitleBarHiddenInset
+	options.Mac.CollectionBehavior = application.MacWindowCollectionBehaviorParticipatesInCycle |
+		application.MacWindowCollectionBehaviorFullScreenPrimary
+	return options
+}
+
+func dayWindowName(date string) string {
+	return "day-" + date
+}
+
+func (d *Desktop) protectClose(window *application.WebviewWindow) {
+	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		if d.consumeApprovedClose(window.ID()) {
+			return
 		}
+		event.Cancel()
+		dispatchToWindow(window, "window:close-request")
 	})
-	if app.GetLaunchDate() != "" {
-		fileMenu.AddText("New Doing Stream", keys.CmdOrCtrl("t"), func(_ *menu.CallbackData) {
-			if app.ctx != nil {
-				runtime.EventsEmit(app.ctx, "menu:new-doing")
-			}
+}
+
+func (d *Desktop) ConfirmClose(window application.Window) {
+	d.closeMu.Lock()
+	d.approvedClose[window.ID()] = true
+	d.closeMu.Unlock()
+	window.Close()
+}
+
+func (d *Desktop) consumeApprovedClose(windowID uint) bool {
+	d.closeMu.Lock()
+	defer d.closeMu.Unlock()
+	approved := d.approvedClose[windowID]
+	delete(d.approvedClose, windowID)
+	return approved
+}
+
+type paneMenuItem struct {
+	label       string
+	accelerator string
+	position    int
+}
+
+func paneFocusMenuItems() []paneMenuItem {
+	items := []paneMenuItem{{label: "Todo", accelerator: "CmdOrCtrl+B", position: 0}}
+	for streamIndex := 1; streamIndex <= 9; streamIndex++ {
+		items = append(items, paneMenuItem{
+			label:       "Doing " + strconv.Itoa(streamIndex),
+			accelerator: "CmdOrCtrl+" + strconv.Itoa(streamIndex),
+			position:    streamIndex,
 		})
 	}
-	fileMenu.AddSeparator()
-	fileMenu.AddText("Save All", keys.CmdOrCtrl("s"), func(_ *menu.CallbackData) {
-		if app.ctx != nil {
-			runtime.EventsEmit(app.ctx, "menu:save")
-		}
-	})
-	fileMenu.AddSeparator()
-	fileMenu.AddText("Settings…", keys.CmdOrCtrl(","), func(_ *menu.CallbackData) {
-		if app.ctx != nil {
-			runtime.EventsEmit(app.ctx, "menu:settings")
-		}
-	})
-	application.Append(menu.EditMenu())
+	return items
+}
 
+func applicationMenu(native *application.App, service *App, desktop *Desktop) *application.Menu {
+	result := native.NewMenu()
+	if runtime.GOOS == "darwin" {
+		result.AddRole(application.AppMenu)
+	}
+
+	fileMenu := result.AddSubmenu("File")
+	fileMenu.Add("Open Journal Day…").SetAccelerator("CmdOrCtrl+O").OnClick(func(*application.Context) {
+		if window := native.Window.Current(); window != nil {
+			dispatchToWindow(window, "menu:open")
+			return
+		}
+		desktop.OpenWelcomeWindow()
+	})
+	fileMenu.Add("New Doing Stream").SetAccelerator("CmdOrCtrl+T").OnClick(func(*application.Context) {
+		emitToCurrent(native, "menu:new-doing")
+	})
+	fileMenu.AddSeparator()
+	fileMenu.Add("Save All").SetAccelerator("CmdOrCtrl+S").OnClick(func(*application.Context) {
+		emitToCurrent(native, "menu:save")
+	})
+	fileMenu.AddRole(application.CloseWindow)
+	fileMenu.AddSeparator()
+	fileMenu.Add("Settings…").SetAccelerator("CmdOrCtrl+,").OnClick(func(*application.Context) {
+		emitToCurrent(native, "menu:settings")
+	})
+
+	result.AddRole(application.EditMenu)
+	viewMenu := result.AddSubmenu("View")
+	viewMenu.Add("Toggle Focused Pane Zoom").SetAccelerator("CmdOrCtrl+Shift+Z").OnClick(func(*application.Context) {
+		emitToCurrent(native, "menu:toggle-pane-zoom")
+	})
+	viewMenu.Add("Toggle All Doing History").SetAccelerator("CmdOrCtrl+Shift+H").OnClick(func(*application.Context) {
+		emitToCurrent(native, "menu:toggle-all-doing-history")
+	})
+	viewMenu.Add("Toggle Focused Doing History").SetAccelerator("CmdOrCtrl+Option+H").OnClick(func(*application.Context) {
+		emitToCurrent(native, "menu:toggle-focused-doing-history")
+	})
+	viewMenu.AddSeparator()
+	viewMenu.Add("Focus Pane Left").SetAccelerator("CmdOrCtrl+Option+Left").OnClick(func(*application.Context) {
+		emitToCurrent(native, "menu:move-focus", -1)
+	})
+	viewMenu.Add("Focus Pane Right").SetAccelerator("CmdOrCtrl+Option+Right").OnClick(func(*application.Context) {
+		emitToCurrent(native, "menu:move-focus", 1)
+	})
+	focusMenu := viewMenu.AddSubmenu("Focus Pane")
+	for _, spec := range paneFocusMenuItems() {
+		item := spec
+		focusMenu.Add(item.label).SetAccelerator(item.accelerator).OnClick(func(*application.Context) {
+			emitToCurrent(native, "menu:focus-pane", item.position)
+		})
+	}
+
+	viewMenu.AddSeparator()
+	fontMenu := viewMenu.AddSubmenu("Editor Font")
 	selectedFont := defaultEditorFont
-	if settings, err := app.GetSettings(); err == nil {
+	if settings, settingsErr := service.GetSettings(); settingsErr == nil {
 		selectedFont = settings.EditorFont
 	}
-	fontOptions := []struct {
-		id    string
-		label string
-	}{
+	fontOptions := []struct{ id, label string }{
 		{id: "avenir-next-condensed", label: "Avenir Next Condensed"},
 		{id: "din-condensed", label: "DIN Condensed"},
 		{id: "pt-sans-narrow", label: "PT Sans Narrow"},
 		{id: "system", label: "System Sans"},
 	}
-	viewMenu := application.AddSubmenu("View")
-	if launchDate := app.GetLaunchDate(); launchDate != "" {
-		viewMenu.AddText("Toggle Todo Pane", keys.CmdOrCtrl("b"), func(_ *menu.CallbackData) {
-			if app.ctx != nil {
-				runtime.EventsEmit(app.ctx, "menu:toggle-todo")
-			}
-		})
-		viewMenu.AddText("Toggle Focused Pane Zoom", keys.Combo("z", keys.CmdOrCtrlKey, keys.ShiftKey), func(_ *menu.CallbackData) {
-			if app.ctx != nil {
-				runtime.EventsEmit(app.ctx, "menu:toggle-pane-zoom")
-			}
-		})
-		viewMenu.AddText("Toggle All Doing History", keys.Combo("h", keys.CmdOrCtrlKey, keys.ShiftKey), func(_ *menu.CallbackData) {
-			if app.ctx != nil {
-				runtime.EventsEmit(app.ctx, "menu:toggle-all-doing-history")
-			}
-		})
-		viewMenu.AddText("Toggle Focused Doing History", keys.Combo("h", keys.CmdOrCtrlKey, keys.OptionOrAltKey), func(_ *menu.CallbackData) {
-			if app.ctx != nil {
-				runtime.EventsEmit(app.ctx, "menu:toggle-focused-doing-history")
-			}
-		})
-		viewMenu.AddSeparator()
-		viewMenu.AddText("Focus Pane Left", keys.Combo("left", keys.CmdOrCtrlKey, keys.OptionOrAltKey), func(_ *menu.CallbackData) {
-			if app.ctx != nil {
-				runtime.EventsEmit(app.ctx, "menu:move-focus", -1)
-			}
-		})
-		viewMenu.AddText("Focus Pane Right", keys.Combo("right", keys.CmdOrCtrlKey, keys.OptionOrAltKey), func(_ *menu.CallbackData) {
-			if app.ctx != nil {
-				runtime.EventsEmit(app.ctx, "menu:move-focus", 1)
-			}
-		})
-		day, err := app.OpenDay(launchDate)
-		if err == nil {
-			focusMenu := viewMenu.AddSubmenu("Focus Pane")
-			paneLabels := []string{"Todo"}
-			for _, file := range day.Doing {
-				paneLabels = append(paneLabels, "Doing "+strconv.Itoa(file.StreamIndex))
-			}
-			for index, label := range paneLabels {
-				position := index + 1
-				var accelerator *keys.Accelerator
-				if position <= 9 {
-					accelerator = keys.CmdOrCtrl(strconv.Itoa(position))
-				}
-				focusMenu.AddText(label, accelerator, func(_ *menu.CallbackData) {
-					if app.ctx != nil {
-						runtime.EventsEmit(app.ctx, "menu:focus-pane", position)
-					}
-				})
-			}
-		}
-	}
-	viewMenu.AddSeparator()
-	fontMenu := viewMenu.AddSubmenu("Editor Font")
-	fontItems := make([]*menu.MenuItem, len(fontOptions))
+	fontItems := make([]*application.MenuItem, len(fontOptions))
 	for index, option := range fontOptions {
 		itemIndex := index
 		font := option
-		fontItems[index] = fontMenu.AddRadio(font.label, font.id == selectedFont, nil, func(_ *menu.CallbackData) {
-			settings, err := app.SetEditorFont(font.id)
-			if err != nil {
-				if app.ctx != nil {
-					runtime.EventsEmit(app.ctx, "menu:error", err.Error())
-				}
+		fontItems[index] = fontMenu.AddRadio(font.label, font.id == selectedFont).OnClick(func(*application.Context) {
+			settings, settingsErr := service.SetEditorFont(font.id)
+			if settingsErr != nil {
+				emitToCurrent(native, "menu:error", settingsErr.Error())
 				return
 			}
-			for current, item := range fontItems {
-				item.SetChecked(current == itemIndex)
+			for current, menuItem := range fontItems {
+				menuItem.SetChecked(current == itemIndex)
 			}
-			if app.ctx != nil {
-				runtime.MenuUpdateApplicationMenu(app.ctx)
-				runtime.EventsEmit(app.ctx, "menu:font", settings.EditorFont)
+			for _, window := range native.Window.GetAll() {
+				dispatchToWindow(window, "menu:font", settings.EditorFont)
 			}
 		})
 	}
 
-	application.Append(menu.WindowMenu())
-	return application
+	result.AddRole(application.WindowMenu)
+	return result
 }
 
-func launchDateFromArgs(args []string) string {
-	for index, argument := range args {
-		if argument == "--day" && index+1 < len(args) && validDate(args[index+1]) {
-			return args[index+1]
-		}
-		if strings.HasPrefix(argument, "--day=") {
-			date := strings.TrimPrefix(argument, "--day=")
-			if validDate(date) {
-				return date
-			}
-		}
+func emitToCurrent(native *application.App, name string, data ...any) {
+	if window := native.Window.Current(); window != nil {
+		dispatchToWindow(window, name, data...)
 	}
-	return ""
+}
+
+func dispatchToWindow(window application.Window, name string, data ...any) {
+	event := &application.CustomEvent{Name: name, Sender: window.Name()}
+	if len(data) == 1 {
+		event.Data = data[0]
+	} else if len(data) > 1 {
+		event.Data = data
+	}
+	window.DispatchWailsEvent(event)
 }

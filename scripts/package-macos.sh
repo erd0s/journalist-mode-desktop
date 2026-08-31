@@ -29,7 +29,7 @@ sign_path() {
     /usr/bin/codesign "${JM_SIGN_ARGS[@]}" "$path"
 }
 
-require_command wails
+require_command wails3
 require_command file
 require_command xcrun
 
@@ -44,7 +44,7 @@ JM_ICON_HEIGHT="$(/usr/bin/sips -g pixelHeight "$JM_ICON_SOURCE" 2>/dev/null \
     || fail "app icon must be a 1024x1024 PNG"
 /usr/bin/ditto "$JM_ICON_SOURCE" "$JM_WAILS_ICON"
 
-wails build
+wails3 package
 
 [[ -d "$JM_APP_PATH" ]] || fail "Wails did not produce: $JM_APP_PATH"
 

@@ -6,17 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 const (
@@ -70,26 +68,21 @@ type DayData struct {
 
 // App is the native boundary for settings and journal-file access.
 type App struct {
-	ctx          context.Context
 	homeDir      string
 	settingsPath string
-	launchDate   string
 	fileMu       sync.Mutex
+	desktop      *Desktop
 }
 
 // NewApp creates the application using the current user's standard folders.
-func NewApp(launchDate ...string) *App {
+func NewApp() *App {
 	homeDir, _ := os.UserHomeDir()
 	configDir, err := os.UserConfigDir()
 	if err != nil || configDir == "" {
 		configDir = filepath.Join(homeDir, ".config")
 	}
 
-	app := newAppForPaths(homeDir, filepath.Join(configDir, settingsDirectoryName, "settings.json"))
-	if len(launchDate) > 0 && validDate(launchDate[0]) {
-		app.launchDate = launchDate[0]
-	}
-	return app
+	return newAppForPaths(homeDir, filepath.Join(configDir, settingsDirectoryName, "settings.json"))
 }
 
 func newAppForPaths(homeDir, settingsPath string) *App {
@@ -99,149 +92,29 @@ func newAppForPaths(homeDir, settingsPath string) *App {
 	}
 }
 
-// startup stores the Wails context used by native dialogs.
-func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
-	if err := a.registerDayWindow(); err != nil {
-		runtime.LogError(ctx, err.Error())
-	}
-}
-
-func (a *App) shutdown(_ context.Context) {
-	if err := a.unregisterDayWindow(); err != nil && a.ctx != nil {
-		runtime.LogError(a.ctx, err.Error())
-	}
-}
-
-// GetLaunchDate returns the day requested when this window was opened.
-func (a *App) GetLaunchDate() string {
-	return a.launchDate
-}
-
 // OpenDayWindow focuses an existing window for the date or opens a new one.
 func (a *App) OpenDayWindow(date string) (string, error) {
 	if !validDate(date) {
 		return "", errors.New("date must use YYYY-MM-DD")
 	}
-
-	pid, open, err := a.registeredDayPID(date)
-	if err != nil {
-		return "", err
+	if a.desktop == nil {
+		return "", errors.New("window manager is not available")
 	}
-	if open {
-		if err := focusProcess(pid); err != nil {
-			return "", fmt.Errorf("focus journal day: %w", err)
-		}
-		return "focused", nil
-	}
-
-	if err := a.openWindow(date); err != nil {
-		return "", err
-	}
-	return "opened", nil
+	return a.desktop.OpenDayWindow(date), nil
 }
 
-func (a *App) openWindow(date string) error {
-	executable, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("locate application: %w", err)
+// ConfirmWindowClose closes the calling window after the frontend has either
+// saved or explicitly discarded its edits.
+func (a *App) ConfirmWindowClose(ctx context.Context) error {
+	if a.desktop == nil {
+		return errors.New("window manager is not available")
 	}
-
-	const bundleMarker = ".app/Contents/MacOS/"
-	if marker := strings.LastIndex(executable, bundleMarker); marker >= 0 {
-		bundlePath := executable[:marker+len(".app")]
-		arguments := []string{"-n", bundlePath}
-		if date != "" {
-			arguments = append(arguments, "--args", "--day", date)
-		}
-		if err := exec.Command("open", arguments...).Start(); err != nil {
-			return fmt.Errorf("open new window: %w", err)
-		}
-		return nil
+	window, ok := ctx.Value(application.WindowKey).(application.Window)
+	if !ok || window == nil {
+		return errors.New("calling window is not available")
 	}
-
-	arguments := withoutLaunchDay(os.Args[1:])
-	if date != "" {
-		arguments = append(arguments, "--day", date)
-	}
-	command := exec.Command(executable, arguments...)
-	if err := command.Start(); err != nil {
-		return fmt.Errorf("open new window: %w", err)
-	}
+	a.desktop.ConfirmClose(window)
 	return nil
-}
-
-func (a *App) registerDayWindow() error {
-	if a.launchDate == "" {
-		return nil
-	}
-	registration := []byte(strconv.Itoa(os.Getpid()))
-	if err := atomicWriteFile(a.dayWindowPath(a.launchDate), registration, 0o600); err != nil {
-		return fmt.Errorf("register journal window: %w", err)
-	}
-	return nil
-}
-
-func (a *App) unregisterDayWindow() error {
-	if a.launchDate == "" {
-		return nil
-	}
-	path := a.dayWindowPath(a.launchDate)
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("read journal window registration: %w", err)
-	}
-	if strings.TrimSpace(string(data)) != strconv.Itoa(os.Getpid()) {
-		return nil
-	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove journal window registration: %w", err)
-	}
-	return nil
-}
-
-func (a *App) registeredDayPID(date string) (int, bool, error) {
-	path := a.dayWindowPath(date)
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return 0, false, nil
-	}
-	if err != nil {
-		return 0, false, fmt.Errorf("read journal window registration: %w", err)
-	}
-
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err == nil && pid > 0 && processAlive(pid) {
-		return pid, true, nil
-	}
-	if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-		return 0, false, fmt.Errorf("remove stale journal window registration: %w", removeErr)
-	}
-	return 0, false, nil
-}
-
-func (a *App) dayWindowPath(date string) string {
-	return filepath.Join(filepath.Dir(a.settingsPath), "windows", date+".pid")
-}
-
-func processAlive(pid int) bool {
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	err = process.Signal(syscall.Signal(0))
-	return err == nil || errors.Is(err, syscall.EPERM)
-}
-
-func focusProcess(pid int) error {
-	script := fmt.Sprintf(
-		`tell application "System Events" to set frontmost of first process whose unix id is %d to true`,
-		pid,
-	)
-	return exec.Command("osascript", "-e", script).Run()
 }
 
 // GetSettings returns persisted settings or the default ~/Documents/JM root.
@@ -312,8 +185,8 @@ func (a *App) SetEditorFont(font string) (Settings, error) {
 }
 
 // ChooseStorageDirectory opens the native folder picker.
-func (a *App) ChooseStorageDirectory() (string, error) {
-	if a.ctx == nil {
+func (a *App) ChooseStorageDirectory(ctx context.Context) (string, error) {
+	if a.desktop == nil {
 		return "", errors.New("folder picker is not available before app startup")
 	}
 
@@ -322,12 +195,17 @@ func (a *App) ChooseStorageDirectory() (string, error) {
 		return "", err
 	}
 
-	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
-		DefaultDirectory:     settings.StorageRoot,
-		Title:                "Choose Journalist Mode folder",
-		CanCreateDirectories: true,
-		ResolvesAliases:      true,
-	})
+	dialog := a.desktop.native.Dialog.OpenFile().
+		SetDirectory(settings.StorageRoot).
+		SetTitle("Choose Journalist Mode folder").
+		CanChooseDirectories(true).
+		CanChooseFiles(false).
+		CanCreateDirectories(true).
+		ResolvesAliases(true)
+	if window, ok := ctx.Value(application.WindowKey).(application.Window); ok {
+		dialog.AttachToWindow(window)
+	}
+	return dialog.PromptForSingleSelection()
 }
 
 // ListDays discovers dates represented by either Doing or Todo files.
@@ -436,9 +314,6 @@ func (a *App) CreateDoingStream(date string) (JournalFile, error) {
 		return JournalFile{}, err
 	}
 
-	if a.ctx != nil {
-		runtime.MenuSetApplicationMenu(a.ctx, applicationMenu(a))
-	}
 	return file, nil
 }
 
@@ -723,21 +598,6 @@ func atomicWriteFile(path string, data []byte, mode os.FileMode) error {
 	}
 
 	return os.Rename(tempName, path)
-}
-
-func withoutLaunchDay(args []string) []string {
-	result := make([]string, 0, len(args))
-	for index := 0; index < len(args); index++ {
-		if args[index] == "--day" {
-			index++
-			continue
-		}
-		if strings.HasPrefix(args[index], "--day=") {
-			continue
-		}
-		result = append(result, args[index])
-	}
-	return result
 }
 
 func validEditorFont(font string) bool {

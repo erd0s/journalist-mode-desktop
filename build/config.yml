@@ -1,0 +1,34 @@
+version: '3'
+
+info:
+  companyName: "Dirk Stewart"
+  productName: "Journalist Mode"
+  productIdentifier: "com.dirkstewart.journalist-mode"
+  description: "A plain-text workspace for parallel streams of thought."
+  copyright: "Copyright © 2026 Dirk Stewart"
+  comments: "A plain-text workspace for parallel streams of thought."
+  version: "0.5.0"
+
+dev_mode:
+  root_path: .
+  log_level: warn
+  debounce: 1000
+  ignore:
+    dir:
+      - .git
+      - build/bin
+      - frontend
+      - frontend/node_modules
+    file:
+      - .DS_Store
+      - "*_test.go"
+    watched_extension:
+      - "*.go"
+    git_ignore: true
+  executes:
+    - cmd: wails3 build DEV=true
+      type: blocking
+    - cmd: wails3 task frontend:dev
+      type: background
+    - cmd: wails3 task run
+      type: primary

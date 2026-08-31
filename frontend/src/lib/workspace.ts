@@ -1,14 +1,21 @@
 export type WorkspaceAction =
-    | {type: 'focus-position'; position: number}
+    | {type: 'focus-todo'}
+    | {type: 'focus-doing'; streamIndex: number}
     | {type: 'move-focus'; delta: -1 | 1}
     | {type: 'toggle-zoom'}
-    | {type: 'toggle-todo'}
     | {type: 'toggle-all-doing-history'}
     | {type: 'toggle-focused-doing-history'};
 
 export type WorkspaceActionRequest = {
     action: WorkspaceAction;
     revision: number;
+};
+
+export type WorkspaceSaveState = 'saved' | 'dirty' | 'saving' | 'conflict' | 'error';
+
+export type SaveBatch = {
+    expectedPaths: Set<string>;
+    results: Map<string, boolean>;
 };
 
 type Shortcut = {
@@ -51,16 +58,55 @@ export function workspaceActionForShortcut(shortcut: Shortcut): WorkspaceAction 
         return null;
     }
     if (key === 'b') {
-        return {type: 'toggle-todo'};
+        return {type: 'focus-todo'};
     }
     if (/^[1-9]$/.test(key)) {
-        return {type: 'focus-position', position: Number(key)};
+        return {type: 'focus-doing', streamIndex: Number(key)};
     }
     return null;
 }
 
 export function nextAllDoingHistoryVisibility(visible: boolean[]): boolean {
     return visible.length > 0 && visible.every(value => !value);
+}
+
+export function aggregateSaveState(states: WorkspaceSaveState[]): WorkspaceSaveState {
+    // Never expose Discard while any pane still has an uncancellable write in
+    // flight. Once saving settles, conflicts and errors take precedence.
+    for (const state of ['saving', 'conflict', 'error', 'dirty'] as const) {
+        if (states.includes(state)) {
+            return state;
+        }
+    }
+    return 'saved';
+}
+
+export function needsCloseConfirmation(state: WorkspaceSaveState): boolean {
+    return state !== 'saved';
+}
+
+export function createSaveBatch(paths: string[]): SaveBatch {
+    return {
+        expectedPaths: new Set(paths),
+        results: new Map<string, boolean>(),
+    };
+}
+
+// Returns null until every expected pane reports, then returns whether all
+// panes saved. Results from panes created after the batch began are ignored.
+export function recordSaveBatchResult(
+    batch: SaveBatch,
+    path: string,
+    succeeded: boolean,
+): boolean | null {
+    if (!batch.expectedPaths.has(path)) {
+        return null;
+    }
+    batch.results.set(path, succeeded);
+    if (![...batch.expectedPaths].every(expectedPath => batch.results.has(expectedPath))) {
+        return null;
+    }
+    return [...batch.expectedPaths].every(expectedPath => batch.results.get(expectedPath) === true);
 }
 
 export function adjacentPanePath(

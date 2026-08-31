@@ -3,12 +3,8 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"sync"
 	"testing"
-
-	"github.com/wailsapp/wails/v2/pkg/menu"
-	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 )
 
 func TestDefaultSettingsUseDocumentsJM(t *testing.T) {
@@ -128,6 +124,35 @@ func TestCreateDoingStreamUsesNextSuffixWithoutChangingExistingFiles(t *testing.
 	}
 }
 
+func TestOpenTodoOnlyDayDoesNotCreateDoingStream(t *testing.T) {
+	app := newAppForPaths(t.TempDir(), filepath.Join(t.TempDir(), "settings.json"))
+	root := filepath.Join(t.TempDir(), "journal")
+	if _, err := app.SaveSettings(Settings{StorageRoot: root}); err != nil {
+		t.Fatal(err)
+	}
+
+	date := "2025-05-20"
+	todoPath := filepath.Join(root, "Todo", date+".jmtodo.md")
+	if err := os.WriteFile(todoPath, []byte("[2025-05-20] existing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	day, err := app.OpenDay(date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(day.Doing) != 0 {
+		t.Fatalf("OpenDay returned %d Doing streams, want none", len(day.Doing))
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "Doing"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("OpenDay created %d Doing files, want none", len(entries))
+	}
+}
+
 func TestConcurrentDoingStreamCreationChoosesUniqueFiles(t *testing.T) {
 	app := newAppForPaths(t.TempDir(), filepath.Join(t.TempDir(), "settings.json"))
 	root := filepath.Join(t.TempDir(), "journal")
@@ -180,53 +205,20 @@ func TestConcurrentDoingStreamCreationChoosesUniqueFiles(t *testing.T) {
 	}
 }
 
-func TestDayMenuContainsOnlyCurrentWindowActions(t *testing.T) {
-	app := newAppForPaths(t.TempDir(), filepath.Join(t.TempDir(), "settings.json"))
-	root := filepath.Join(t.TempDir(), "journal")
-	if _, err := app.SaveSettings(Settings{StorageRoot: root}); err != nil {
-		t.Fatal(err)
+func TestPaneFocusMenuUsesTodoAndMatchingDoingShortcuts(t *testing.T) {
+	items := paneFocusMenuItems()
+	if len(items) != 10 {
+		t.Fatalf("paneFocusMenuItems() has %d items, want 10", len(items))
 	}
-	if _, err := app.CreateDay("2026-08-28"); err != nil {
-		t.Fatal(err)
+	if got := items[0]; got.label != "Todo" || got.accelerator != "CmdOrCtrl+B" || got.position != 0 {
+		t.Fatalf("Todo menu item = %#v", got)
 	}
-	app.launchDate = "2026-08-28"
-	application := applicationMenu(app)
-
-	if menuContainsLabel(application, "New Window") {
-		t.Fatal("day menu retained the defunct New Window action")
-	}
-	for _, label := range []string{
-		"Open Journal Day…",
-		"New Doing Stream",
-		"Toggle Todo Pane",
-		"Toggle Focused Pane Zoom",
-		"Toggle All Doing History",
-		"Toggle Focused Doing History",
-		"Focus Pane Left",
-		"Focus Pane Right",
-		"Todo",
-		"Doing 1",
-	} {
-		if !menuContainsLabel(application, label) {
-			t.Fatalf("day menu is missing %q", label)
-		}
-	}
-
-	accelerators := map[string]string{
-		"Toggle Todo Pane":             "Cmd+B",
-		"Toggle Focused Pane Zoom":     "Cmd+Shift+Z",
-		"Toggle All Doing History":     "Cmd+Shift+H",
-		"Toggle Focused Doing History": "Cmd+Option+H",
-		"Focus Pane Left":              "Cmd+Option+LEFT",
-		"Focus Pane Right":             "Cmd+Option+RIGHT",
-	}
-	for label, want := range accelerators {
-		item := menuItemByLabel(application, label)
-		if item == nil || item.Accelerator == nil {
-			t.Fatalf("menu item %q has no accelerator", label)
-		}
-		if got := keys.Stringify(item.Accelerator, "darwin"); got != want {
-			t.Fatalf("accelerator for %q = %q, want %q", label, got, want)
+	for streamIndex := 1; streamIndex <= 9; streamIndex++ {
+		got := items[streamIndex]
+		if got.label != "Doing "+string(rune('0'+streamIndex)) ||
+			got.accelerator != "CmdOrCtrl+"+string(rune('0'+streamIndex)) ||
+			got.position != streamIndex {
+			t.Fatalf("Doing %d menu item = %#v", streamIndex, got)
 		}
 	}
 }
@@ -340,39 +332,16 @@ func TestReadJournalFilesRejectsOutsideStorageRoot(t *testing.T) {
 	}
 }
 
-func TestWindowLaunchArguments(t *testing.T) {
-	if got := launchDateFromArgs([]string{"--day", "2026-08-28"}); got != "2026-08-28" {
-		t.Fatalf("launchDateFromArgs() = %q", got)
+func TestWindowIdentityAndCloseApproval(t *testing.T) {
+	if got := dayWindowName("2026-08-28"); got != "day-2026-08-28" {
+		t.Fatalf("dayWindowName() = %q", got)
 	}
-	if got := launchDateFromArgs([]string{"--day=not-a-date"}); got != "" {
-		t.Fatalf("invalid launch date = %q", got)
+	desktop := &Desktop{approvedClose: map[uint]bool{42: true}}
+	if !desktop.consumeApprovedClose(42) {
+		t.Fatal("first approved close was rejected")
 	}
-
-	filtered := withoutLaunchDay([]string{"--devserver", "http://localhost:34115", "--day", "2026-08-28"})
-	if !reflect.DeepEqual(filtered, []string{"--devserver", "http://localhost:34115"}) {
-		t.Fatalf("withoutLaunchDay() = %#v", filtered)
-	}
-}
-
-func TestDayWindowRegistration(t *testing.T) {
-	app := newAppForPaths(t.TempDir(), filepath.Join(t.TempDir(), "settings.json"))
-	app.launchDate = "2026-08-28"
-
-	if err := app.registerDayWindow(); err != nil {
-		t.Fatal(err)
-	}
-	pid, open, err := app.registeredDayPID(app.launchDate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !open || pid != os.Getpid() {
-		t.Fatalf("registeredDayPID() = (%d, %v), want (%d, true)", pid, open, os.Getpid())
-	}
-	if err := app.unregisterDayWindow(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(app.dayWindowPath(app.launchDate)); !os.IsNotExist(err) {
-		t.Fatalf("window registration still exists: %v", err)
+	if desktop.consumeApprovedClose(42) {
+		t.Fatal("close approval was not one-shot")
 	}
 }
 
@@ -381,22 +350,4 @@ func TestEditorFontValidation(t *testing.T) {
 	if _, err := app.SetEditorFont("comic-sans"); err == nil {
 		t.Fatal("SetEditorFont accepted an unknown font")
 	}
-}
-
-func menuContainsLabel(parent *menu.Menu, label string) bool {
-	return menuItemByLabel(parent, label) != nil
-}
-
-func menuItemByLabel(parent *menu.Menu, label string) *menu.MenuItem {
-	for _, item := range parent.Items {
-		if item.Label == label {
-			return item
-		}
-		if item.SubMenu != nil {
-			if child := menuItemByLabel(item.SubMenu, label); child != nil {
-				return child
-			}
-		}
-	}
-	return nil
 }

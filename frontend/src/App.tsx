@@ -1,13 +1,14 @@
-import {useEffect, useRef, useState} from 'react';
-import {EventsOn, Quit, WindowSetTitle} from '../wailsjs/runtime/runtime';
+import {useCallback, useEffect, useRef, useState} from 'react';
+import {Events, Window as NativeWindow} from '@wailsio/runtime';
 import './App.css';
 import {appAPI, DayData, DaySummary, Settings} from './api';
-import {DayWorkspace} from './components/DayWorkspace';
+import {DayWorkspace, WorkspaceSaveState} from './components/DayWorkspace';
 import {SettingsView} from './components/SettingsView';
 import {Welcome} from './components/Welcome';
-import {WorkspaceAction, WorkspaceActionRequest} from './lib/workspace';
+import {needsCloseConfirmation, WorkspaceAction, WorkspaceActionRequest} from './lib/workspace';
 
 type Screen = 'welcome' | 'settings' | 'day';
+type ClosePrompt = 'confirm' | 'waiting' | 'saving' | 'failed' | null;
 
 export default function App() {
     const [screen, setScreen] = useState<Screen>('welcome');
@@ -17,13 +18,23 @@ export default function App() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [saveRequest, setSaveRequest] = useState(0);
+    const [discardRequest, setDiscardRequest] = useState(0);
+    const [workspaceSaveState, setWorkspaceSaveState] = useState<WorkspaceSaveState>('saved');
+    const [closePrompt, setClosePrompt] = useState<ClosePrompt>(null);
     const [newDoingRequest, setNewDoingRequest] = useState(0);
     const [workspaceActionRequest, setWorkspaceActionRequest] = useState<WorkspaceActionRequest>({
-        action: {type: 'focus-position', position: 0},
+        action: {type: 'focus-todo'},
         revision: 0,
     });
     const [dayPickerOpen, setDayPickerOpen] = useState(false);
     const settingsReturnScreen = useRef<Screen>('welcome');
+    const closeSaveRevision = useRef(0);
+    const workspaceSaveStateRef = useRef<WorkspaceSaveState>('saved');
+
+    const handleWorkspaceSaveStateChange = useCallback((state: WorkspaceSaveState) => {
+        workspaceSaveStateRef.current = state;
+        setWorkspaceSaveState(state);
+    }, []);
 
     const loadWelcome = async () => {
         const [nextSettings, nextDays] = await Promise.all([
@@ -38,6 +49,9 @@ export default function App() {
         setOpenDay(day);
         setScreen('day');
         setError('');
+        workspaceSaveStateRef.current = 'saved';
+        setWorkspaceSaveState('saved');
+        setClosePrompt(null);
     };
 
     const createToday = async (closePickerWindow: boolean) => {
@@ -47,7 +61,7 @@ export default function App() {
                 await appAPI.openDayWindow(day.date);
                 setDayPickerOpen(false);
                 if (closePickerWindow) {
-                    Quit();
+                    await appAPI.closeWindow();
                 }
             } else {
                 showDay(day);
@@ -66,7 +80,7 @@ export default function App() {
                 await appAPI.openDayWindow(date);
                 setDayPickerOpen(false);
                 if (closePickerWindow) {
-                    Quit();
+                    await appAPI.closeWindow();
                 }
                 return;
             }
@@ -78,7 +92,7 @@ export default function App() {
     };
 
     const showDayPicker = () => {
-        if (screen === 'welcome') {
+        if (screen === 'welcome' || closePrompt) {
             return;
         }
         setDayPickerOpen(true);
@@ -86,6 +100,13 @@ export default function App() {
     };
 
     const openSettings = () => {
+        if (closePrompt) {
+            return;
+        }
+        if (screen === 'day' && needsCloseConfirmation(workspaceSaveStateRef.current)) {
+            setError('Save or resolve this journal window before opening Settings.');
+            return;
+        }
         setScreen(current => {
             settingsReturnScreen.current = current === 'settings' ? 'welcome' : current;
             return 'settings';
@@ -97,6 +118,27 @@ export default function App() {
             action,
             revision: current.revision + 1,
         }));
+    };
+
+    const closeCurrentWindow = () => {
+        void appAPI.closeWindow().catch(reason => setError(errorMessage(reason)));
+    };
+
+    const requestWindowClose = () => {
+        if (closePrompt) {
+            return;
+        }
+        setDayPickerOpen(false);
+        const saveState = workspaceSaveStateRef.current;
+        if (screen === 'day' && saveState === 'saving') {
+            setClosePrompt('waiting');
+            return;
+        }
+        if (screen === 'day' && needsCloseConfirmation(saveState)) {
+            setClosePrompt('confirm');
+            return;
+        }
+        closeCurrentWindow();
     };
 
     useEffect(() => {
@@ -114,60 +156,63 @@ export default function App() {
     }, []);
 
     useEffect(() => {
-        if (!window.runtime) {
+        if (!appAPI.isNative()) {
             return;
         }
 
-        const stopSettings = EventsOn('menu:settings', () => {
-            if (!dayPickerOpen) {
+        const stopSettings = Events.On('menu:settings', () => {
+            if (!dayPickerOpen && !closePrompt) {
                 openSettings();
             }
         });
-        const stopOpen = EventsOn('menu:open', showDayPicker);
-        const stopSave = EventsOn('menu:save', () => {
-            if (screen === 'day' && !dayPickerOpen) {
+        const stopOpen = Events.On('menu:open', showDayPicker);
+        const stopSave = Events.On('menu:save', () => {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
                 setSaveRequest(request => request + 1);
             }
         });
-        const stopToggleAllDoingHistory = EventsOn('menu:toggle-all-doing-history', () => {
-            if (screen === 'day' && !dayPickerOpen) {
+        const stopToggleAllDoingHistory = Events.On('menu:toggle-all-doing-history', () => {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
                 requestWorkspaceAction({type: 'toggle-all-doing-history'});
             }
         });
-        const stopToggleFocusedDoingHistory = EventsOn('menu:toggle-focused-doing-history', () => {
-            if (screen === 'day' && !dayPickerOpen) {
+        const stopToggleFocusedDoingHistory = Events.On('menu:toggle-focused-doing-history', () => {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
                 requestWorkspaceAction({type: 'toggle-focused-doing-history'});
             }
         });
-        const stopNewDoing = EventsOn('menu:new-doing', () => {
-            if (screen === 'day' && !dayPickerOpen) {
+        const stopNewDoing = Events.On('menu:new-doing', () => {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
                 setNewDoingRequest(request => request + 1);
             }
         });
-        const stopFocusPane = EventsOn('menu:focus-pane', (position: number) => {
-            if (screen === 'day' && !dayPickerOpen) {
-                requestWorkspaceAction({type: 'focus-position', position});
+        const stopFocusPane = Events.On('menu:focus-pane', event => {
+            const position = Number(event.data);
+            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
+                if (position === 0) {
+                    requestWorkspaceAction({type: 'focus-todo'});
+                } else {
+                    requestWorkspaceAction({type: 'focus-doing', streamIndex: position});
+                }
             }
         });
-        const stopMoveFocus = EventsOn('menu:move-focus', (delta: -1 | 1) => {
-            if (screen === 'day' && !dayPickerOpen) {
+        const stopMoveFocus = Events.On('menu:move-focus', event => {
+            const delta = Number(event.data) as -1 | 1;
+            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
                 requestWorkspaceAction({type: 'move-focus', delta});
             }
         });
-        const stopTogglePaneZoom = EventsOn('menu:toggle-pane-zoom', () => {
-            if (screen === 'day' && !dayPickerOpen) {
+        const stopTogglePaneZoom = Events.On('menu:toggle-pane-zoom', () => {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
                 requestWorkspaceAction({type: 'toggle-zoom'});
             }
         });
-        const stopToggleTodo = EventsOn('menu:toggle-todo', () => {
-            if (screen === 'day' && !dayPickerOpen) {
-                requestWorkspaceAction({type: 'toggle-todo'});
-            }
-        });
-        const stopFont = EventsOn('menu:font', (editorFont: string) => {
+        const stopFont = Events.On('menu:font', event => {
+            const editorFont = String(event.data);
             setSettings(current => current ? {...current, editorFont} as Settings : current);
         });
-        const stopError = EventsOn('menu:error', (message: string) => setError(message));
+        const stopError = Events.On('menu:error', event => setError(String(event.data)));
+        const stopClose = Events.On('window:close-request', requestWindowClose);
         return () => {
             stopSettings();
             stopOpen();
@@ -178,27 +223,41 @@ export default function App() {
             stopFocusPane();
             stopMoveFocus();
             stopTogglePaneZoom();
-            stopToggleTodo();
             stopFont();
             stopError();
+            stopClose();
         };
     });
 
     useEffect(() => {
-        if (!window.runtime) {
+        if (!appAPI.isNative()) {
             return;
         }
         const title = screen === 'day' && openDay
             ? formatWindowTitle(openDay.date)
             : screen === 'settings' ? 'Settings — Journalist Mode' : 'Journalist Mode';
-        WindowSetTitle(title);
+        void NativeWindow.SetTitle(title);
     }, [openDay, screen]);
 
     useEffect(() => {
         const shortcut = (event: KeyboardEvent) => {
+            if (event.key === 'Escape' && (closePrompt === 'confirm' || closePrompt === 'waiting')) {
+                event.preventDefault();
+                setClosePrompt(null);
+                return;
+            }
             if (event.key === 'Escape' && dayPickerOpen) {
                 event.preventDefault();
                 setDayPickerOpen(false);
+                return;
+            }
+            if (closePrompt) {
+                return;
+            }
+            // Native menu accelerators own application commands in Wails.
+            // Handling the same keystroke in the webview can enqueue a
+            // non-idempotent action such as New Doing Stream twice.
+            if (appAPI.isNative()) {
                 return;
             }
             if (!(event.metaKey || event.ctrlKey) || event.altKey) {
@@ -235,13 +294,59 @@ export default function App() {
         return () => window.removeEventListener('keydown', shortcut, true);
     });
 
+    useEffect(() => {
+        if (closePrompt !== 'waiting' || workspaceSaveState === 'saving') {
+            return;
+        }
+        if (workspaceSaveState === 'saved') {
+            setClosePrompt(null);
+            closeCurrentWindow();
+            return;
+        }
+        setClosePrompt('confirm');
+    }, [closePrompt, workspaceSaveState]);
+
+    const saveAndClose = () => {
+        const revision = saveRequest + 1;
+        closeSaveRevision.current = revision;
+        setClosePrompt('saving');
+        setSaveRequest(revision);
+    };
+
+    const discardAndClose = () => {
+        setDiscardRequest(current => current + 1);
+        setClosePrompt(null);
+        window.requestAnimationFrame(closeCurrentWindow);
+    };
+
+    const handleSaveComplete = (revision: number, succeeded: boolean) => {
+        if (revision !== closeSaveRevision.current || closePrompt !== 'saving') {
+            return;
+        }
+        closeSaveRevision.current = 0;
+        if (!succeeded) {
+            setClosePrompt('failed');
+            return;
+        }
+        setClosePrompt(null);
+        closeCurrentWindow();
+    };
+
     const saveSettings = async (nextSettings: Settings) => {
         try {
             const saved = await appAPI.saveSettings(nextSettings);
+            const returnScreen = settingsReturnScreen.current;
             setSettings(saved);
             setDays(await appAPI.listDays());
-            setScreen('welcome');
-            setOpenDay(null);
+            if (returnScreen === 'day' && openDay) {
+                setOpenDay(await appAPI.openDay(openDay.date));
+                workspaceSaveStateRef.current = 'saved';
+                setWorkspaceSaveState('saved');
+                setScreen('day');
+            } else {
+                setOpenDay(null);
+                setScreen('welcome');
+            }
             setError('');
         } catch (reason) {
             setError(errorMessage(reason));
@@ -288,11 +393,69 @@ export default function App() {
                 <DayWorkspace
                     day={openDay}
                     saveRequest={saveRequest}
+                    discardRequest={discardRequest}
                     newDoingRequest={newDoingRequest}
                     workspaceActionRequest={workspaceActionRequest}
-                    interactionDisabled={dayPickerOpen}
+                    interactionDisabled={dayPickerOpen || closePrompt !== null}
                     onError={message => setError(message)}
+                    onSaveStateChange={handleWorkspaceSaveStateChange}
+                    onSaveComplete={handleSaveComplete}
                 />
+            )}
+
+            {closePrompt && (
+                <div className="close-prompt-backdrop">
+                    <section
+                        className="close-prompt"
+                        role="alertdialog"
+                        aria-modal="true"
+                        aria-labelledby="close-prompt-title"
+                        aria-describedby="close-prompt-description"
+                    >
+                        <h2 id="close-prompt-title">
+                            {closePrompt === 'failed'
+                                ? 'Couldn’t save this window'
+                                : closePrompt === 'waiting' ? 'Finishing the current save…' : 'Save changes before closing?'}
+                        </h2>
+                        <p id="close-prompt-description">
+                            {closePrompt === 'failed'
+                                ? 'A save failed or a file changed outside Journalist Mode. The window is still open so you can resolve it without losing work.'
+                                : closePrompt === 'waiting'
+                                    ? 'The window will close when the current save succeeds. If it fails, your work will stay open.'
+                                : 'This journal window has unsaved changes.'}
+                        </p>
+                        <div className="close-prompt-actions">
+                            {closePrompt === 'confirm' && (
+                                <>
+                                    <button type="button" className="danger-button" onClick={discardAndClose}>
+                                        Discard Changes
+                                    </button>
+                                    <button type="button" className="quiet-button" onClick={() => setClosePrompt(null)}>
+                                        Cancel
+                                    </button>
+                                    <button type="button" className="save-button" onClick={saveAndClose} autoFocus>
+                                        Save and Close
+                                    </button>
+                                </>
+                            )}
+                            {closePrompt === 'saving' && (
+                                <button type="button" className="save-button" disabled>
+                                    Saving…
+                                </button>
+                            )}
+                            {closePrompt === 'waiting' && (
+                                <button type="button" className="quiet-button" onClick={() => setClosePrompt(null)} autoFocus>
+                                    Cancel
+                                </button>
+                            )}
+                            {closePrompt === 'failed' && (
+                                <button type="button" className="save-button" onClick={() => setClosePrompt(null)} autoFocus>
+                                    Keep Editing
+                                </button>
+                            )}
+                        </div>
+                    </section>
+                </div>
             )}
 
             {dayPickerOpen && screen !== 'welcome' && (

@@ -46,11 +46,13 @@ The app does not sort Todo entries or provide file synchronization.
 | `Command-S` | Save every pane in the current window |
 | `Command-O` or `Command-N` | Show the day picker in the current window |
 | `Command-T` | Create and focus the next numbered Doing stream |
-| `Command-1` … `Command-9` | Focus Todo, then the first eight open Doing streams |
+| `Command-B` | Focus and reveal Todo; hide it when Todo already has focus |
+| `Command-1` … `Command-9` | Focus the open Doing stream with the matching number |
 | `Command-Option-Left` or `Command-Option-Right` | Focus the previous or next visible pane, wrapping at either edge |
 | `Command-Shift-Z` | Toggle the focused pane between its normal width and the full workspace |
-| `Command-B` | Toggle the Todo pane |
 | `Command-,` | Open Settings |
+| `Command-W` | Close the current window, prompting if it has unsaved changes |
+| <kbd>Command</kbd>-<kbd>&#96;</kbd> | Cycle through open journal windows |
 
 ## Install a release
 
@@ -60,11 +62,12 @@ The current binary release targets Apple Silicon. Other platforms are not part o
 
 ## Development
 
-The project uses Go 1.23, Wails 2.11, React, TypeScript, and CodeMirror.
+The project uses Go 1.25, Wails 3, React, TypeScript, and CodeMirror.
 
 ```sh
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.8
 npm install --prefix frontend
-wails dev
+wails3 task dev
 ```
 
 Run the checks before submitting a change:

@@ -1,8 +1,8 @@
 import {
     ChooseStorageDirectory as nativeChooseStorageDirectory,
+    ConfirmWindowClose as nativeConfirmWindowClose,
     CreateDoingStream as nativeCreateDoingStream,
     CreateToday as nativeCreateToday,
-    GetLaunchDate as nativeGetLaunchDate,
     GetSettings as nativeGetSettings,
     ListDays as nativeListDays,
     OpenDay as nativeOpenDay,
@@ -10,8 +10,8 @@ import {
     ReadJournalFiles as nativeReadJournalFiles,
     SaveFile as nativeSaveFile,
     SaveSettings as nativeSaveSettings,
-} from '../wailsjs/go/main/App';
-import {main} from '../wailsjs/go/models';
+} from '../bindings/journalist-mode-desktop/app';
+import * as main from '../bindings/journalist-mode-desktop/models';
 
 export type Settings = main.Settings;
 export type DaySummary = main.DaySummary;
@@ -21,12 +21,16 @@ export type SaveResult = main.SaveResult;
 
 declare global {
     interface Window {
-        go?: Record<string, unknown>;
-        runtime?: Record<string, unknown>;
+        _wails?: {
+            environment?: {OS?: string};
+            [key: string]: unknown;
+        };
     }
 }
 
-const isNative = () => Boolean(window.go);
+// The Wails runtime creates window._wails in ordinary browsers too. The
+// desktop host additionally injects its environment before the app starts.
+const isNative = () => Boolean(window._wails?.environment?.OS);
 
 let mockSettings = new main.Settings({
     storageRoot: '~/Documents/JM',
@@ -82,7 +86,13 @@ export const appAPI = {
     isNative,
 
     async getLaunchDate(): Promise<string> {
-        return isNative() ? nativeGetLaunchDate() : '';
+        return new URLSearchParams(window.location.search).get('day') ?? '';
+    },
+
+    async closeWindow(): Promise<void> {
+        if (isNative()) {
+            await nativeConfirmWindowClose();
+        }
     },
 
     async getSettings(): Promise<Settings> {
