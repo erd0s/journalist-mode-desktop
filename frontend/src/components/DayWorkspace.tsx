@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {appAPI, DayData, JournalFile} from '../api';
+import {appAPI, DayData, DebugFileSnapshot, JournalFile} from '../api';
+import {DebugEventDraft, DebugRecorder, keyboardDetails, targetDetails} from '../lib/debug';
 import {contentToLines, linesToContent} from '../lib/journal';
 import {
     aggregateSaveState,
@@ -13,7 +14,8 @@ import {
     WorkspaceSaveState,
     workspaceActionForShortcut,
 } from '../lib/workspace';
-import {LineEditor} from './LineEditor';
+import {Icon} from './Icons';
+import {EditorInteraction, LineEditor} from './LineEditor';
 
 const diskPollInterval = 750;
 
@@ -21,6 +23,7 @@ export type {WorkspaceSaveState} from '../lib/workspace';
 
 type DayWorkspaceProps = {
     day: DayData;
+    debugMode: boolean;
     saveRequest: number;
     discardRequest: number;
     newDoingRequest: number;
@@ -31,8 +34,22 @@ type DayWorkspaceProps = {
     onSaveComplete: (revision: number, succeeded: boolean) => void;
 };
 
+type DebugFileState = {
+    content: string;
+    diskContent: string;
+    saveState: WorkspaceSaveState;
+};
+
+type DebugInteractionReporter = (
+    path: string,
+    category: string,
+    action: string,
+    details?: Record<string, string>,
+) => void;
+
 export function DayWorkspace({
     day,
+    debugMode,
     saveRequest,
     discardRequest,
     newDoingRequest,
@@ -50,6 +67,7 @@ export function DayWorkspace({
     const [zoomedPath, setZoomedPath] = useState('');
     const [doingHistoryVisible, setDoingHistoryVisible] = useState<Record<string, boolean>>({});
     const [editorFocus, setEditorFocus] = useState({path: '', revision: 0});
+    const [checkpointState, setCheckpointState] = useState<'idle' | 'saving' | 'saved'>('idle');
     const [diskContents, setDiskContents] = useState<Record<string, string>>(
         () => contentsByPath(files),
     );
@@ -63,16 +81,108 @@ export function DayWorkspace({
     const preparedSaveRequest = useRef(saveRequest);
     const mounted = useRef(true);
     const currentDate = useRef(day.date);
+    const debugFileStates = useRef<Record<string, DebugFileState>>({});
+    const debugContextRef = useRef<() => {window: string; files: DebugFileSnapshot[]}>(
+        () => ({window: `day:${day.date}`, files: []}),
+    );
+    const debugErrorRef = useRef(onError);
+    const checkpointTimer = useRef<number>();
+    debugErrorRef.current = onError;
+
+    const recorderRef = useRef<DebugRecorder>();
+    if (!recorderRef.current) {
+        recorderRef.current = new DebugRecorder({
+            write: appAPI.recordDebugEvents,
+            context: () => debugContextRef.current(),
+            onError: reason => debugErrorRef.current(
+                `Debug recording failed: ${errorMessage(reason)}`,
+            ),
+        });
+    }
+    const recorder = recorderRef.current;
+
+    debugContextRef.current = () => ({
+        window: `day:${day.date}`,
+        files: files.map(file => {
+            const state = debugFileStates.current[file.path];
+            const isTodo = file.path === day.todo.path;
+            return {
+                path: file.path,
+                name: file.name,
+                kind: isTodo ? 'todo' : 'doing',
+                streamIndex: file.streamIndex,
+                content: state?.content ?? file.content,
+                diskContent: diskContents[file.path] ?? state?.diskContent ?? file.content,
+                saveState: state?.saveState ?? saveStates.current[file.path] ?? 'saved',
+                completedVisible: isTodo || Boolean(doingHistoryVisible[file.path]),
+                focused: focusedPath === file.path,
+                visible: isTodo
+                    ? todoVisible && (!zoomedPath || zoomedPath === file.path)
+                    : !zoomedPath || zoomedPath === file.path,
+            } as DebugFileSnapshot;
+        }),
+    });
+
+    const recordDebug = useCallback((draft: DebugEventDraft, immediate = false) => (
+        recorder.record(draft, immediate)
+    ), [recorder]);
+
+    const reportDebugFileState = useCallback((path: string, state: DebugFileState) => {
+        debugFileStates.current[path] = state;
+    }, []);
+
+    const reportDebugInteraction = useCallback((
+        path: string,
+        category: string,
+        action: string,
+        details: Record<string, string> = {},
+    ) => {
+        void recordDebug({
+            category,
+            action,
+            details: {path, ...details},
+        });
+    }, [recordDebug]);
+
+    const markDebugCheckpoint = async () => {
+        setCheckpointState('saving');
+        try {
+            await recordDebug({
+                category: 'checkpoint',
+                action: 'user_checkpoint',
+                details: {focusedPath},
+            }, true);
+            setCheckpointState('saved');
+            if (checkpointTimer.current !== undefined) {
+                window.clearTimeout(checkpointTimer.current);
+            }
+            checkpointTimer.current = window.setTimeout(
+                () => setCheckpointState('idle'),
+                1800,
+            );
+        } catch {
+            setCheckpointState('idle');
+        }
+    };
 
     useEffect(() => {
         mounted.current = true;
         return () => {
             mounted.current = false;
+            if (checkpointTimer.current !== undefined) {
+                window.clearTimeout(checkpointTimer.current);
+            }
+            recorder.dispose();
         };
-    }, []);
+    }, [recorder]);
+
+    useEffect(() => {
+        recorder.setEnabled(debugMode);
+    }, [debugMode, recorder]);
 
     useEffect(() => {
         currentDate.current = day.date;
+        debugFileStates.current = {};
         setDoingFiles(day.doing);
         setFocusedPath(day.doing[0]?.path ?? day.todo.path);
         setTodoVisible(true);
@@ -88,6 +198,36 @@ export function DayWorkspace({
         handledWorkspaceAction.current = workspaceActionRequest.revision;
         createChain.current = Promise.resolve();
     }, [day.date]);
+
+    useEffect(() => {
+        const active = new Set(paths);
+        for (const path of Object.keys(debugFileStates.current)) {
+            if (!active.has(path)) {
+                delete debugFileStates.current[path];
+            }
+        }
+    }, [paths]);
+
+    useEffect(() => {
+        void recordDebug({
+            category: 'workspace',
+            action: 'state_changed',
+            details: {
+                focusedPath,
+                todoVisible: String(todoVisible),
+                zoomedPath,
+                doingHistoryVisible: JSON.stringify(doingHistoryVisible),
+            },
+        });
+    }, [doingHistoryVisible, focusedPath, recordDebug, todoVisible, zoomedPath]);
+
+    useEffect(() => {
+        void recordDebug({
+            category: 'disk',
+            action: 'workspace_snapshot_updated',
+            details: {paths: Object.keys(diskContents).join(',')},
+        });
+    }, [diskContents, recordDebug]);
 
     useEffect(() => {
         if (focusedPath === day.todo.path || doingFiles.some(file => file.path === focusedPath)) {
@@ -119,7 +259,12 @@ export function DayWorkspace({
         // must not make this batch wait for a completion it never requested.
         preparedSaveRequest.current = saveRequest;
         saveBatches.current.set(saveRequest, createSaveBatch(paths));
-    }, [saveRequest]);
+        void recordDebug({
+            category: 'save',
+            action: 'save_all_requested',
+            details: {revision: String(saveRequest), paths: paths.join(',')},
+        });
+    }, [paths, recordDebug, saveRequest]);
 
     useEffect(() => {
         let stopped = false;
@@ -135,7 +280,12 @@ export function DayWorkspace({
                 if (!stopped) {
                     setDiskContents(current => mergeSnapshots(current, snapshots));
                 }
-            } catch {
+            } catch (reason) {
+                void recordDebug({
+                    category: 'disk',
+                    action: 'poll_failed',
+                    details: {error: errorMessage(reason)},
+                });
                 // A transient read failure should not disrupt typing. The next
                 // poll retries; explicit saves still surface their own errors.
             } finally {
@@ -149,7 +299,7 @@ export function DayWorkspace({
             stopped = true;
             window.clearInterval(interval);
         };
-    }, [paths]);
+    }, [paths, recordDebug]);
 
     const updateDiskContent = useCallback((path: string, nextContent: string) => {
         setDiskContents(current => current[path] === nextContent
@@ -183,8 +333,13 @@ export function DayWorkspace({
             return;
         }
         saveBatches.current.delete(revision);
+        void recordDebug({
+            category: 'save',
+            action: 'save_all_completed',
+            details: {revision: String(revision), succeeded: String(batchSucceeded)},
+        });
         onSaveComplete(revision, batchSucceeded);
-    }, [onSaveComplete, paths]);
+    }, [onSaveComplete, paths, recordDebug]);
 
     const focusPath = useCallback((path: string): boolean => {
         if (path === day.todo.path) {
@@ -283,23 +438,40 @@ export function DayWorkspace({
     }, [doingFiles, focusedPath]);
 
     const handleWorkspaceAction = useCallback((action: WorkspaceAction): boolean => {
+        let handled = false;
         switch (action.type) {
             case 'focus-todo':
-                return toggleTodo();
+                handled = toggleTodo();
+                break;
             case 'focus-doing':
-                return focusDoing(action.streamIndex);
+                handled = focusDoing(action.streamIndex);
+                break;
             case 'move-focus':
-                return moveFocus(action.delta);
+                handled = moveFocus(action.delta);
+                break;
             case 'toggle-zoom':
-                return toggleZoom();
+                handled = toggleZoom();
+                break;
             case 'toggle-all-doing-history':
-                return toggleAllDoingHistory();
+                handled = toggleAllDoingHistory();
+                break;
             case 'toggle-focused-doing-history':
-                return toggleFocusedDoingHistory();
+                handled = toggleFocusedDoingHistory();
+                break;
         }
+        void recordDebug({
+            category: 'command',
+            action: action.type,
+            details: {
+                handled: String(handled),
+                arguments: JSON.stringify(action),
+            },
+        });
+        return handled;
     }, [
         focusDoing,
         moveFocus,
+        recordDebug,
         toggleAllDoingHistory,
         toggleFocusedDoingHistory,
         toggleTodo,
@@ -340,6 +512,11 @@ export function DayWorkspace({
             return;
         }
         handledNewDoingRequest.current = newDoingRequest;
+        void recordDebug({
+            category: 'command',
+            action: 'new_doing_requested',
+            details: {count: String(count)},
+        });
         createChain.current = createChain.current.then(async () => {
             for (let pending = 0; pending < count; pending += 1) {
                 try {
@@ -355,16 +532,65 @@ export function DayWorkspace({
                     setFocusedPath(file.path);
                     setZoomedPath(current => current ? file.path : current);
                     setEditorFocus(current => ({path: file.path, revision: current.revision + 1}));
+                    void recordDebug({
+                        category: 'file',
+                        action: 'doing_stream_created',
+                        details: {path: file.path, streamIndex: String(file.streamIndex)},
+                    });
                 } catch (reason) {
+                    void recordDebug({
+                        category: 'file',
+                        action: 'doing_stream_create_failed',
+                        details: {error: errorMessage(reason)},
+                    });
                     onError(errorMessage(reason));
                 }
             }
         });
-    }, [day.date, newDoingRequest, onError]);
+    }, [day.date, newDoingRequest, onError, recordDebug]);
 
     return (
-        <main className="workspace-shell">
+        <main
+            className="workspace-shell"
+            onKeyDownCapture={event => void recordDebug({
+                category: 'input',
+                action: 'keydown',
+                details: keyboardDetails(event.nativeEvent),
+            })}
+            onPointerDownCapture={event => void recordDebug({
+                category: 'input',
+                action: 'pointerdown',
+                details: {
+                    ...targetDetails(event.target),
+                    button: String(event.button),
+                    pointerType: event.pointerType,
+                },
+            })}
+            onClickCapture={event => void recordDebug({
+                category: 'input',
+                action: 'click',
+                details: targetDetails(event.target),
+            })}
+            onFocusCapture={event => void recordDebug({
+                category: 'input',
+                action: 'focus',
+                details: targetDetails(event.target),
+            })}
+        >
             <div className="window-drag-region" aria-hidden="true"/>
+            {debugMode && (
+                <button
+                    type="button"
+                    className={`debug-checkpoint-button ${checkpointState}`}
+                    aria-label="Mark debug checkpoint"
+                    title="Mark the current state in the debug log"
+                    onClick={() => void markDebugCheckpoint()}
+                    disabled={checkpointState === 'saving'}
+                >
+                    <Icon name={checkpointState === 'saved' ? 'check' : 'flag'} size={15}/>
+                    <span>{checkpointState === 'saved' ? 'Marked' : 'Checkpoint'}</span>
+                </button>
+            )}
             <section className={`pane-strip${zoomedPath ? ' is-zoomed' : ''}`}>
                 <TodoPane
                     file={day.todo}
@@ -374,6 +600,8 @@ export function DayWorkspace({
                     onDiskContent={updateDiskContent}
                     onSaveState={updateSaveState}
                     onSaveComplete={reportSaveComplete}
+                    onDebugFileState={reportDebugFileState}
+                    onDebugInteraction={reportDebugInteraction}
                     focusRequest={editorFocus.path === day.todo.path ? editorFocus.revision : 0}
                     hidden={!todoVisible || Boolean(zoomedPath && zoomedPath !== day.todo.path)}
                     onFocus={() => setFocusedPath(day.todo.path)}
@@ -388,6 +616,8 @@ export function DayWorkspace({
                         onDiskContent={updateDiskContent}
                         onSaveState={updateSaveState}
                         onSaveComplete={reportSaveComplete}
+                        onDebugFileState={reportDebugFileState}
+                        onDebugInteraction={reportDebugInteraction}
                         showCompleted={Boolean(doingHistoryVisible[file.path])}
                         onFocus={() => setFocusedPath(file.path)}
                         focusRequest={editorFocus.path === file.path ? editorFocus.revision : 0}
@@ -412,6 +642,8 @@ type DiskAwarePaneProps = {
     onDiskContent: (path: string, content: string) => void;
     onSaveState: (path: string, state: WorkspaceSaveState) => void;
     onSaveComplete: (path: string, revision: number, succeeded: boolean) => void;
+    onDebugFileState: (path: string, state: DebugFileState) => void;
+    onDebugInteraction: DebugInteractionReporter;
     focusRequest: number;
     hidden: boolean;
     onFocus: () => void;
@@ -425,6 +657,8 @@ function TodoPane({
     onDiskContent,
     onSaveState,
     onSaveComplete,
+    onDebugFileState,
+    onDebugInteraction,
     focusRequest,
     hidden,
     onFocus,
@@ -437,6 +671,8 @@ function TodoPane({
         onDiskContent,
         onSaveState,
         onSaveComplete,
+        onDebugFileState,
+        onDebugInteraction,
     );
 
     return (
@@ -471,6 +707,8 @@ function DoingPane({
     onDiskContent,
     onSaveState,
     onSaveComplete,
+    onDebugFileState,
+    onDebugInteraction,
     showCompleted,
     onFocus,
     focusRequest,
@@ -484,6 +722,8 @@ function DoingPane({
         onDiskContent,
         onSaveState,
         onSaveComplete,
+        onDebugFileState,
+        onDebugInteraction,
     );
 
     return (
@@ -548,6 +788,8 @@ function useJournalFile(
     onDiskContent: (path: string, content: string) => void,
     onSaveState: (path: string, state: WorkspaceSaveState) => void,
     onSaveComplete: (path: string, revision: number, succeeded: boolean) => void,
+    onDebugFileState: (path: string, state: DebugFileState) => void,
+    onDebugInteraction: DebugInteractionReporter,
 ) {
     const [lines, setLines] = useState(() => contentToLines(file.content));
     const [saveState, setSaveState] = useState<SaveState>('saved');
@@ -561,13 +803,29 @@ function useJournalFile(
     const saveChain = useRef<Promise<void>>(Promise.resolve());
     const onSaveStateRef = useRef(onSaveState);
     const onSaveCompleteRef = useRef(onSaveComplete);
+    const onDebugFileStateRef = useRef(onDebugFileState);
+    const onDebugInteractionRef = useRef(onDebugInteraction);
+    const saveStateRef = useRef<SaveState>('saved');
 
     onSaveStateRef.current = onSaveState;
     onSaveCompleteRef.current = onSaveComplete;
+    onDebugFileStateRef.current = onDebugFileState;
+    onDebugInteractionRef.current = onDebugInteraction;
+
+    const publishDebugState = () => {
+        onDebugFileStateRef.current(file.path, {
+            content: content.current,
+            diskContent: observedDisk.current,
+            saveState: saveStateRef.current,
+        });
+    };
 
     const updateSaveState = (state: SaveState) => {
+        saveStateRef.current = state;
         setSaveState(state);
         onSaveStateRef.current(file.path, state);
+        publishDebugState();
+        onDebugInteractionRef.current(file.path, 'file', 'save_state_changed', {state});
     };
 
     useEffect(() => {
@@ -588,6 +846,12 @@ function useJournalFile(
             return;
         }
         observedDisk.current = diskContent;
+        publishDebugState();
+        onDebugInteractionRef.current(file.path, 'disk', 'content_observed', {
+            length: String(diskContent.length),
+            matchesBaseline: String(diskContent === baseline.current),
+            matchesEditor: String(diskContent === content.current),
+        });
 
         if (diskContent === baseline.current) {
             external.current = null;
@@ -618,6 +882,10 @@ function useJournalFile(
 
     const queueSave = (force: boolean): Promise<SaveState> => {
         const operation = saveChain.current.then(async (): Promise<SaveState> => {
+            onDebugInteractionRef.current(file.path, 'save', 'requested', {
+                force: String(force),
+                dirty: String(dirty.current),
+            });
             if (!dirty.current && !force) {
                 updateSaveState('saved');
                 return 'saved';
@@ -628,6 +896,12 @@ function useJournalFile(
             updateSaveState('saving');
             try {
                 const result = await appAPI.saveFile(file.path, saving, expected, force);
+                onDebugInteractionRef.current(file.path, 'save', 'result', {
+                    force: String(force),
+                    saved: String(result.saved),
+                    conflict: String(result.conflict),
+                    diskLength: String(result.content.length),
+                });
                 if (result.conflict) {
                     observedDisk.current = result.content;
                     onDiskContent(file.path, result.content);
@@ -659,7 +933,11 @@ function useJournalFile(
                 dirty.current = true;
                 updateSaveState('dirty');
                 return 'dirty';
-            } catch {
+            } catch (reason) {
+                onDebugInteractionRef.current(file.path, 'save', 'failed', {
+                    force: String(force),
+                    error: errorMessage(reason),
+                });
                 const state = external.current === null ? 'error' : 'conflict';
                 updateSaveState(state);
                 return state;
@@ -693,11 +971,16 @@ function useJournalFile(
         updateSaveState('saved');
     }, [discardRequest, file.path]);
 
-    const update = (nextLines: string[]) => {
+    const update = (nextLines: string[], interaction: EditorInteraction) => {
         setLines(nextLines);
         content.current = linesToContent(nextLines);
         dirty.current = true;
         updateSaveState(external.current === null ? 'dirty' : 'conflict');
+        publishDebugState();
+        onDebugInteractionRef.current(file.path, 'editor', 'transaction', {
+            ...interaction,
+            contentLength: String(content.current.length),
+        });
     };
 
     const useDiskVersion = () => {
@@ -712,6 +995,10 @@ function useJournalFile(
         dirty.current = false;
         setLines(contentToLines(nextContent));
         updateSaveState('saved');
+        publishDebugState();
+        onDebugInteractionRef.current(file.path, 'conflict', 'used_disk_version', {
+            contentLength: String(nextContent.length),
+        });
     };
 
     return {
@@ -719,7 +1006,10 @@ function useJournalFile(
         update,
         saveState,
         useDiskVersion,
-        overwriteDisk: () => void queueSave(true),
+        overwriteDisk: () => {
+            onDebugInteractionRef.current(file.path, 'conflict', 'overwrite_requested');
+            void queueSave(true);
+        },
     };
 }
 

@@ -78,6 +78,123 @@ export class DaySummary {
 }
 
 /**
+ * DebugEvent is one frontend interaction and its complete workspace snapshot.
+ */
+export class DebugEvent {
+    "clientTimestamp": string;
+    "sequence": number;
+    "window": string;
+    "category": string;
+    "action": string;
+    "details": { [_ in string]?: string };
+    "files": DebugFileSnapshot[];
+
+    /** Creates a new DebugEvent instance. */
+    constructor($$source: Partial<DebugEvent> = {}) {
+        if (!("clientTimestamp" in $$source)) {
+            this["clientTimestamp"] = "";
+        }
+        if (!("sequence" in $$source)) {
+            this["sequence"] = 0;
+        }
+        if (!("window" in $$source)) {
+            this["window"] = "";
+        }
+        if (!("category" in $$source)) {
+            this["category"] = "";
+        }
+        if (!("action" in $$source)) {
+            this["action"] = "";
+        }
+        if (!("details" in $$source)) {
+            this["details"] = {};
+        }
+        if (!("files" in $$source)) {
+            this["files"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DebugEvent instance from a string or object.
+     */
+    static createFrom($$source: any = {}): DebugEvent {
+        const $$createField5_0 = $$createType2;
+        const $$createField6_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("details" in $$parsedSource) {
+            $$parsedSource["details"] = $$createField5_0($$parsedSource["details"]);
+        }
+        if ("files" in $$parsedSource) {
+            $$parsedSource["files"] = $$createField6_0($$parsedSource["files"]);
+        }
+        return new DebugEvent($$parsedSource as Partial<DebugEvent>);
+    }
+}
+
+/**
+ * DebugFileSnapshot captures both the editor's current content and the last
+ * content observed on disk. Debug logs deliberately contain journal text.
+ */
+export class DebugFileSnapshot {
+    "path": string;
+    "name": string;
+    "kind": string;
+    "streamIndex": number;
+    "content": string;
+    "diskContent": string;
+    "saveState": string;
+    "completedVisible": boolean;
+    "focused": boolean;
+    "visible": boolean;
+
+    /** Creates a new DebugFileSnapshot instance. */
+    constructor($$source: Partial<DebugFileSnapshot> = {}) {
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("kind" in $$source)) {
+            this["kind"] = "";
+        }
+        if (!("streamIndex" in $$source)) {
+            this["streamIndex"] = 0;
+        }
+        if (!("content" in $$source)) {
+            this["content"] = "";
+        }
+        if (!("diskContent" in $$source)) {
+            this["diskContent"] = "";
+        }
+        if (!("saveState" in $$source)) {
+            this["saveState"] = "";
+        }
+        if (!("completedVisible" in $$source)) {
+            this["completedVisible"] = false;
+        }
+        if (!("focused" in $$source)) {
+            this["focused"] = false;
+        }
+        if (!("visible" in $$source)) {
+            this["visible"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DebugFileSnapshot instance from a string or object.
+     */
+    static createFrom($$source: any = {}): DebugFileSnapshot {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new DebugFileSnapshot($$parsedSource as Partial<DebugFileSnapshot>);
+    }
+}
+
+/**
  * JournalFile is one plain-text file displayed by the day workspace.
  */
 export class JournalFile {
@@ -161,6 +278,7 @@ export class SaveResult {
 export class Settings {
     "storageRoot": string;
     "editorFont": string;
+    "debugMode": boolean;
 
     /** Creates a new Settings instance. */
     constructor($$source: Partial<Settings> = {}) {
@@ -169,6 +287,9 @@ export class Settings {
         }
         if (!("editorFont" in $$source)) {
             this["editorFont"] = "";
+        }
+        if (!("debugMode" in $$source)) {
+            this["debugMode"] = false;
         }
 
         Object.assign(this, $$source);
@@ -186,3 +307,6 @@ export class Settings {
 // Private type creation functions
 const $$createType0 = JournalFile.createFrom;
 const $$createType1 = $Create.Array($$createType0);
+const $$createType2 = $Create.Map($Create.Any, $Create.Any);
+const $$createType3 = DebugFileSnapshot.createFrom;
+const $$createType4 = $Create.Array($$createType3);

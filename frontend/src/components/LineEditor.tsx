@@ -28,9 +28,18 @@ type LineEditorProps = {
     kind: 'doing' | 'todo';
     lines: string[];
     showCompleted?: boolean;
-    onChange: (lines: string[]) => void;
+    onChange: (lines: string[], interaction: EditorInteraction) => void;
     onFocus?: () => void;
     focusRequest?: number;
+};
+
+export type EditorInteraction = {
+    userEvents: string;
+    changes: string;
+    selectionBefore: string;
+    selectionAfter: string;
+    transactionCount: string;
+    composing: string;
 };
 
 const externalDocumentUpdate = Annotation.define<boolean>();
@@ -107,7 +116,20 @@ export function LineEditor({
                             transaction => transaction.annotation(externalDocumentUpdate),
                         );
                         if (update.docChanged && !cameFromDisk) {
-                            onChangeRef.current(contentToLines(update.state.doc.toString()));
+                            const userEvents = update.transactions
+                                .map(transaction => transaction.annotation(Transaction.userEvent))
+                                .filter((event): event is string => Boolean(event));
+                            onChangeRef.current(
+                                contentToLines(update.state.doc.toString()),
+                                {
+                                    userEvents: userEvents.join(','),
+                                    changes: JSON.stringify(update.changes.toJSON()),
+                                    selectionBefore: JSON.stringify(update.startState.selection.toJSON()),
+                                    selectionAfter: JSON.stringify(update.state.selection.toJSON()),
+                                    transactionCount: String(update.transactions.length),
+                                    composing: String(update.view.composing),
+                                },
+                            );
                         }
                     }),
                 ],

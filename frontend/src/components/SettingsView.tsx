@@ -4,16 +4,27 @@ import {Icon} from './Icons';
 
 type SettingsProps = {
     settings: Settings;
+    debugLogDirectory: string;
     onBack: () => void;
     onBrowse: () => Promise<string>;
+    onOpenDebugFolder: () => Promise<void>;
     onSave: (settings: Settings) => Promise<void>;
 };
 
-export function SettingsView({settings, onBack, onBrowse, onSave}: SettingsProps) {
+export function SettingsView({
+    settings,
+    debugLogDirectory,
+    onBack,
+    onBrowse,
+    onOpenDebugFolder,
+    onSave,
+}: SettingsProps) {
     const [storageRoot, setStorageRoot] = useState(settings.storageRoot);
+    const [debugMode, setDebugMode] = useState(settings.debugMode);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => setStorageRoot(settings.storageRoot), [settings.storageRoot]);
+    useEffect(() => setDebugMode(settings.debugMode), [settings.debugMode]);
 
     const browse = async () => {
         const selected = await onBrowse();
@@ -25,7 +36,7 @@ export function SettingsView({settings, onBack, onBrowse, onSave}: SettingsProps
     const save = async () => {
         setSaving(true);
         try {
-            await onSave({...settings, storageRoot});
+            await onSave({...settings, storageRoot, debugMode});
         } finally {
             setSaving(false);
         }
@@ -33,6 +44,7 @@ export function SettingsView({settings, onBack, onBrowse, onSave}: SettingsProps
 
     return (
         <main className="settings-shell">
+            <div className="window-drag-region" aria-hidden="true"/>
             <section className="settings-content">
                 <p className="eyebrow">Preferences</p>
                 <h1>Settings</h1>
@@ -60,6 +72,37 @@ export function SettingsView({settings, onBack, onBrowse, onSave}: SettingsProps
                     </div>
 
                     <p className="setting-note">Changing this location does not move existing files. You can migrate them into these folders at any time.</p>
+                </div>
+
+                <div className="settings-card debug-settings-card">
+                    <label className="debug-toggle">
+                        <span className="setting-label debug-setting-label">
+                            <span className="debug-status-dot" aria-hidden="true"/>
+                            <span>
+                                <strong>Debug flight recorder</strong>
+                                <small>Capture interactions and complete file snapshots</small>
+                            </span>
+                        </span>
+                        <span className="switch-control">
+                            <input
+                                type="checkbox"
+                                aria-label="Enable debug mode"
+                                checked={debugMode}
+                                onChange={event => setDebugMode(event.target.checked)}
+                            />
+                            <span aria-hidden="true"/>
+                        </span>
+                    </label>
+
+                    <p className="debug-warning">
+                        Debug logs stay on this computer, but they contain the full text of every open journal file and can grow quickly. Turn this off when you finish investigating.
+                    </p>
+                    <div className="debug-folder-row">
+                        <code title={debugLogDirectory}>{debugLogDirectory || 'Debug log folder'}</code>
+                        <button type="button" className="secondary-button" onClick={onOpenDebugFolder}>
+                            Show logs
+                        </button>
+                    </div>
                 </div>
 
                 <div className="settings-actions">

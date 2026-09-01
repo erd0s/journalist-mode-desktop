@@ -60,6 +60,15 @@ export function CreateToday(): $CancellablePromise<$models.DayData> {
 }
 
 /**
+ * GetDebugLogDirectory returns the private application-support folder used by
+ * the flight recorder. It does not create the folder until logging is enabled
+ * or the user explicitly asks to reveal it.
+ */
+export function GetDebugLogDirectory(): $CancellablePromise<string> {
+    return $Call.ByID(2452506095);
+}
+
+/**
  * GetSettings returns persisted settings or the default ~/Documents/JM root.
  */
 export function GetSettings(): $CancellablePromise<$models.Settings> {
@@ -94,6 +103,21 @@ export function OpenDayWindow(date: string): $CancellablePromise<string> {
 }
 
 /**
+ * OpenDebugLogFolder reveals the recorder folder in Finder or the platform's
+ * equivalent file manager.
+ */
+export function OpenDebugLogFolder(): $CancellablePromise<void> {
+    return $Call.ByID(132951502);
+}
+
+/**
+ * OpenSettingsWindow focuses the application-wide settings window or opens it.
+ */
+export function OpenSettingsWindow(): $CancellablePromise<string> {
+    return $Call.ByID(3185921024);
+}
+
+/**
  * ReadJournalFiles returns fresh snapshots for open panes. The frontend polls
  * this in one batch so changes made by editors, scripts, or coding agents are
  * noticed without installing a long-lived filesystem watcher.
@@ -102,6 +126,15 @@ export function ReadJournalFiles(paths: string[]): $CancellablePromise<$models.J
     return $Call.ByID(2433091695, paths).then(($result: any) => {
         return $$createType5($result);
     });
+}
+
+/**
+ * RecordDebugEvents appends a short frontend batch to the active JSONL log.
+ * Calls are ignored when debug mode is disabled so a stale window cannot keep
+ * collecting journal content after the setting has been turned off.
+ */
+export function RecordDebugEvents(events: $models.DebugEvent[]): $CancellablePromise<void> {
+    return $Call.ByID(2072820646, events);
 }
 
 /**

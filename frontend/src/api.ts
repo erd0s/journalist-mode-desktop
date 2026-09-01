@@ -3,17 +3,23 @@ import {
     ConfirmWindowClose as nativeConfirmWindowClose,
     CreateDoingStream as nativeCreateDoingStream,
     CreateToday as nativeCreateToday,
+    GetDebugLogDirectory as nativeGetDebugLogDirectory,
     GetSettings as nativeGetSettings,
     ListDays as nativeListDays,
     OpenDay as nativeOpenDay,
     OpenDayWindow as nativeOpenDayWindow,
+    OpenDebugLogFolder as nativeOpenDebugLogFolder,
+    OpenSettingsWindow as nativeOpenSettingsWindow,
     ReadJournalFiles as nativeReadJournalFiles,
+    RecordDebugEvents as nativeRecordDebugEvents,
     SaveFile as nativeSaveFile,
     SaveSettings as nativeSaveSettings,
 } from '../bindings/journalist-mode-desktop/app';
 import * as main from '../bindings/journalist-mode-desktop/models';
 
 export type Settings = main.Settings;
+export type DebugEvent = main.DebugEvent;
+export type DebugFileSnapshot = main.DebugFileSnapshot;
 export type DaySummary = main.DaySummary;
 export type JournalFile = main.JournalFile;
 export type DayData = main.DayData;
@@ -35,6 +41,7 @@ const isNative = () => Boolean(window._wails?.environment?.OS);
 let mockSettings = new main.Settings({
     storageRoot: '~/Documents/JM',
     editorFont: 'avenir-next-condensed',
+    debugMode: false,
 });
 let mockDay = new main.DayData({
     date: '2026-08-28',
@@ -85,6 +92,10 @@ const mockDays = [
 export const appAPI = {
     isNative,
 
+    isSettingsWindow(): boolean {
+        return new URLSearchParams(window.location.search).get('settings') === '1';
+    },
+
     async getLaunchDate(): Promise<string> {
         return new URLSearchParams(window.location.search).get('day') ?? '';
     },
@@ -128,6 +139,28 @@ export const appAPI = {
 
     async openDayWindow(date: string): Promise<string> {
         return isNative() ? nativeOpenDayWindow(date) : 'opened';
+    },
+
+    async openSettingsWindow(): Promise<string> {
+        return isNative() ? nativeOpenSettingsWindow() : 'opened';
+    },
+
+    async getDebugLogDirectory(): Promise<string> {
+        return isNative()
+            ? nativeGetDebugLogDirectory()
+            : '/Users/example/Library/Application Support/Journalist Mode/debug';
+    },
+
+    async openDebugLogFolder(): Promise<void> {
+        if (isNative()) {
+            await nativeOpenDebugLogFolder();
+        }
+    },
+
+    async recordDebugEvents(events: DebugEvent[]): Promise<void> {
+        if (isNative()) {
+            await nativeRecordDebugEvents(events);
+        }
     },
 
     async createDoingStream(date: string): Promise<JournalFile> {

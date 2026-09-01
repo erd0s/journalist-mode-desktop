@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -20,6 +21,7 @@ var assets embed.FS
 const (
 	applicationName = "Journalist Mode"
 	welcomeWindow   = "welcome"
+	settingsWindow  = "settings"
 )
 
 var singleInstanceKey = [32]byte{
@@ -119,6 +121,33 @@ func (d *Desktop) OpenWelcomeWindow() {
 	window.Focus()
 }
 
+func (d *Desktop) OpenSettingsWindow() string {
+	d.windowMu.Lock()
+	defer d.windowMu.Unlock()
+
+	if existing, ok := d.native.Window.GetByName(settingsWindow); ok {
+		existing.Show()
+		existing.Restore()
+		existing.Focus()
+		return "focused"
+	}
+
+	window := d.native.Window.NewWithOptions(baseWindowOptions(application.WebviewWindowOptions{
+		Name:          settingsWindow,
+		Title:         "Settings — " + applicationName,
+		Width:         720,
+		Height:        760,
+		MinWidth:      620,
+		MinHeight:     640,
+		DisableResize: false,
+		URL:           "/?settings=1",
+	}))
+	d.protectClose(window)
+	window.Show()
+	window.Focus()
+	return "opened"
+}
+
 func (d *Desktop) OpenDayWindow(date string) string {
 	d.windowMu.Lock()
 	defer d.windowMu.Unlock()
@@ -158,6 +187,21 @@ func baseWindowOptions(options application.WebviewWindowOptions) application.Web
 
 func dayWindowName(date string) string {
 	return "day-" + date
+}
+
+func (d *Desktop) hasOpenDayWindow() bool {
+	for _, window := range d.native.Window.GetAll() {
+		if strings.HasPrefix(window.Name(), "day-") {
+			return true
+		}
+	}
+	return false
+}
+
+func (d *Desktop) broadcastSettings(settings Settings) {
+	for _, window := range d.native.Window.GetAll() {
+		dispatchToWindow(window, "settings:changed", settings)
+	}
 }
 
 func (d *Desktop) protectClose(window *application.WebviewWindow) {
@@ -227,7 +271,7 @@ func applicationMenu(native *application.App, service *App, desktop *Desktop) *a
 	fileMenu.AddRole(application.CloseWindow)
 	fileMenu.AddSeparator()
 	fileMenu.Add("Settings…").SetAccelerator("CmdOrCtrl+,").OnClick(func(*application.Context) {
-		emitToCurrent(native, "menu:settings")
+		desktop.OpenSettingsWindow()
 	})
 
 	result.AddRole(application.EditMenu)

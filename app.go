@@ -32,6 +32,7 @@ var (
 type Settings struct {
 	StorageRoot string `json:"storageRoot"`
 	EditorFont  string `json:"editorFont"`
+	DebugMode   bool   `json:"debugMode"`
 }
 
 // DaySummary is the information needed by the welcome screen.
@@ -71,6 +72,11 @@ type App struct {
 	homeDir      string
 	settingsPath string
 	fileMu       sync.Mutex
+	debugMu      sync.Mutex
+	debugKnown   bool
+	debugEnabled bool
+	debugSession string
+	debugLogPath string
 	desktop      *Desktop
 }
 
@@ -103,6 +109,14 @@ func (a *App) OpenDayWindow(date string) (string, error) {
 	return a.desktop.OpenDayWindow(date), nil
 }
 
+// OpenSettingsWindow focuses the application-wide settings window or opens it.
+func (a *App) OpenSettingsWindow() (string, error) {
+	if a.desktop == nil {
+		return "", errors.New("window manager is not available")
+	}
+	return a.desktop.OpenSettingsWindow(), nil
+}
+
 // ConfirmWindowClose closes the calling window after the frontend has either
 // saved or explicitly discarded its edits.
 func (a *App) ConfirmWindowClose(ctx context.Context) error {
@@ -126,6 +140,7 @@ func (a *App) GetSettings() (Settings, error) {
 
 	data, err := os.ReadFile(a.settingsPath)
 	if errors.Is(err, os.ErrNotExist) {
+		a.setDebugMode(settings.DebugMode)
 		return settings, nil
 	}
 	if err != nil {
@@ -140,12 +155,17 @@ func (a *App) GetSettings() (Settings, error) {
 	}
 	settings.StorageRoot = a.expandPath(settings.StorageRoot)
 	settings.EditorFont = normaliseEditorFont(settings.EditorFont)
+	a.setDebugMode(settings.DebugMode)
 
 	return settings, nil
 }
 
 // SaveSettings persists a journal root and creates its Doing/Todo folders.
 func (a *App) SaveSettings(settings Settings) (Settings, error) {
+	previous, err := a.GetSettings()
+	if err != nil {
+		return Settings{}, err
+	}
 	root := a.expandPath(settings.StorageRoot)
 	if root == "" || !filepath.IsAbs(root) {
 		return Settings{}, errors.New("storage location must be an absolute folder")
@@ -153,6 +173,9 @@ func (a *App) SaveSettings(settings Settings) (Settings, error) {
 
 	settings.StorageRoot = filepath.Clean(root)
 	settings.EditorFont = normaliseEditorFont(settings.EditorFont)
+	if previous.StorageRoot != settings.StorageRoot && a.desktop != nil && a.desktop.hasOpenDayWindow() {
+		return Settings{}, errors.New("close all journal windows before changing the journal folder")
+	}
 	if err := ensureJournalFolders(settings.StorageRoot); err != nil {
 		return Settings{}, err
 	}
@@ -166,6 +189,10 @@ func (a *App) SaveSettings(settings Settings) (Settings, error) {
 	}
 	if err := atomicWriteFile(a.settingsPath, data, 0o600); err != nil {
 		return Settings{}, fmt.Errorf("save settings: %w", err)
+	}
+	a.setDebugMode(settings.DebugMode)
+	if a.desktop != nil {
+		a.desktop.broadcastSettings(settings)
 	}
 
 	return settings, nil

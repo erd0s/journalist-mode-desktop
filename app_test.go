@@ -23,6 +23,9 @@ func TestDefaultSettingsUseDocumentsJM(t *testing.T) {
 	if settings.EditorFont != defaultEditorFont {
 		t.Fatalf("EditorFont = %q, want %q", settings.EditorFont, defaultEditorFont)
 	}
+	if settings.DebugMode {
+		t.Fatal("DebugMode defaults to true")
+	}
 }
 
 func TestCreateListOpenAndSaveDay(t *testing.T) {

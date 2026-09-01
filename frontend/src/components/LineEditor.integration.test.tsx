@@ -80,8 +80,12 @@ describe('mounted Doing editor input', () => {
 
         await vi.waitFor(() => expect(onChange).toHaveBeenCalled());
         const lines = onChange.mock.lastCall![0];
+        const interaction = onChange.mock.lastCall![1];
         expect(lines[0]).toBe(completed);
         expect(lines[1]).toMatch(timestamped);
         expect(lines[1].endsWith('n')).toBe(true);
+        expect(interaction.userEvents).toContain('input.type');
+        expect(JSON.parse(interaction.changes)).toBeInstanceOf(Array);
+        expect(JSON.parse(interaction.selectionAfter)).toHaveProperty('ranges');
     });
 });

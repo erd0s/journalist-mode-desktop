@@ -11,8 +11,10 @@ type Screen = 'welcome' | 'settings' | 'day';
 type ClosePrompt = 'confirm' | 'waiting' | 'saving' | 'failed' | null;
 
 export default function App() {
-    const [screen, setScreen] = useState<Screen>('welcome');
+    const settingsWindow = appAPI.isSettingsWindow();
+    const [screen, setScreen] = useState<Screen>(settingsWindow ? 'settings' : 'welcome');
     const [settings, setSettings] = useState<Settings | null>(null);
+    const [debugLogDirectory, setDebugLogDirectory] = useState('');
     const [days, setDays] = useState<DaySummary[]>([]);
     const [openDay, setOpenDay] = useState<DayData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -103,6 +105,13 @@ export default function App() {
         if (closePrompt) {
             return;
         }
+        void appAPI.getDebugLogDirectory()
+            .then(setDebugLogDirectory)
+            .catch(reason => setError(errorMessage(reason)));
+        if (appAPI.isNative()) {
+            void appAPI.openSettingsWindow().catch(reason => setError(errorMessage(reason)));
+            return;
+        }
         if (screen === 'day' && needsCloseConfirmation(workspaceSaveStateRef.current)) {
             setError('Save or resolve this journal window before opening Settings.');
             return;
@@ -143,6 +152,16 @@ export default function App() {
 
     useEffect(() => {
         const initialise = async () => {
+            if (settingsWindow) {
+                const [nextSettings, logDirectory] = await Promise.all([
+                    appAPI.getSettings(),
+                    appAPI.getDebugLogDirectory(),
+                ]);
+                setSettings(nextSettings);
+                setDebugLogDirectory(logDirectory);
+                setScreen('settings');
+                return;
+            }
             await loadWelcome();
             const launchDate = await appAPI.getLaunchDate();
             if (launchDate) {
@@ -160,11 +179,6 @@ export default function App() {
             return;
         }
 
-        const stopSettings = Events.On('menu:settings', () => {
-            if (!dayPickerOpen && !closePrompt) {
-                openSettings();
-            }
-        });
         const stopOpen = Events.On('menu:open', showDayPicker);
         const stopSave = Events.On('menu:save', () => {
             if (screen === 'day' && !dayPickerOpen && !closePrompt) {
@@ -211,10 +225,18 @@ export default function App() {
             const editorFont = String(event.data);
             setSettings(current => current ? {...current, editorFont} as Settings : current);
         });
+        const stopSettingsChanged = Events.On('settings:changed', event => {
+            const changed = event.data as Settings;
+            setSettings(changed);
+            if (screen === 'welcome') {
+                void appAPI.listDays()
+                    .then(nextDays => setDays(nextDays ?? []))
+                    .catch(reason => setError(errorMessage(reason)));
+            }
+        });
         const stopError = Events.On('menu:error', event => setError(String(event.data)));
         const stopClose = Events.On('window:close-request', requestWindowClose);
         return () => {
-            stopSettings();
             stopOpen();
             stopSave();
             stopToggleAllDoingHistory();
@@ -224,6 +246,7 @@ export default function App() {
             stopMoveFocus();
             stopTogglePaneZoom();
             stopFont();
+            stopSettingsChanged();
             stopError();
             stopClose();
         };
@@ -335,8 +358,13 @@ export default function App() {
     const saveSettings = async (nextSettings: Settings) => {
         try {
             const saved = await appAPI.saveSettings(nextSettings);
-            const returnScreen = settingsReturnScreen.current;
             setSettings(saved);
+            setError('');
+            if (settingsWindow && appAPI.isNative()) {
+                await appAPI.closeWindow();
+                return;
+            }
+            const returnScreen = settingsReturnScreen.current;
             setDays(await appAPI.listDays());
             if (returnScreen === 'day' && openDay) {
                 setOpenDay(await appAPI.openDay(openDay.date));
@@ -347,7 +375,6 @@ export default function App() {
                 setOpenDay(null);
                 setScreen('welcome');
             }
-            setError('');
         } catch (reason) {
             setError(errorMessage(reason));
             throw reason;
@@ -383,8 +410,18 @@ export default function App() {
             {screen === 'settings' && (
                 <SettingsView
                     settings={settings}
-                    onBack={() => setScreen(settingsReturnScreen.current)}
+                    debugLogDirectory={debugLogDirectory}
+                    onBack={() => settingsWindow && appAPI.isNative()
+                        ? closeCurrentWindow()
+                        : setScreen(settingsReturnScreen.current)}
                     onBrowse={appAPI.chooseStorageDirectory}
+                    onOpenDebugFolder={async () => {
+                        try {
+                            await appAPI.openDebugLogFolder();
+                        } catch (reason) {
+                            setError(errorMessage(reason));
+                        }
+                    }}
                     onSave={saveSettings}
                 />
             )}
@@ -392,6 +429,7 @@ export default function App() {
             {screen === 'day' && openDay && (
                 <DayWorkspace
                     day={openDay}
+                    debugMode={settings.debugMode}
                     saveRequest={saveRequest}
                     discardRequest={discardRequest}
                     newDoingRequest={newDoingRequest}

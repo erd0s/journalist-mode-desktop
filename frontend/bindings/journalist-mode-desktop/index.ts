@@ -9,6 +9,8 @@ export {
 export {
     DayData,
     DaySummary,
+    DebugEvent,
+    DebugFileSnapshot,
     JournalFile,
     SaveResult,
     Settings
