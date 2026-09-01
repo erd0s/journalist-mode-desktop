@@ -7,7 +7,7 @@ info:
   description: "A plain-text workspace for parallel streams of thought."
   copyright: "Copyright © 2026 Dirk Stewart"
   comments: "A plain-text workspace for parallel streams of thought."
-  version: "0.5.0"
+  version: "0.5.1"
 
 dev_mode:
   root_path: .
