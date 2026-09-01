@@ -196,11 +196,14 @@ export function doingInputGuard(completedHidden = false): Extension {
             changeCount += 1;
             inserted = text.toString();
         });
-        if (changeCount !== 1 || !inserted.trim() || inserted.includes('\n')) {
+        const input = transaction.isUserEvent('input.type') && inserted.endsWith('\n')
+            ? inserted.slice(0, -1)
+            : inserted;
+        if (changeCount !== 1 || !input.trim() || input.includes('\n')) {
             return transaction;
         }
 
-        const timestamped = ensureDoingTimestamp(inserted);
+        const timestamped = ensureDoingTimestamp(input);
         const from = transaction.startState.doc.length;
         const prefix = from > 0 && transaction.startState.doc.sliceString(from - 1) !== '\n' ? '\n' : '';
         const insert = `${prefix}${timestamped}`;
