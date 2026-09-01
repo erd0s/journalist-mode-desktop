@@ -1,5 +1,5 @@
 import {defaultKeymap, history, historyKeymap, indentWithTab} from '@codemirror/commands';
-import {Annotation, Compartment, EditorState, Prec, Transaction} from '@codemirror/state';
+import {Annotation, Compartment, EditorState, Extension, Prec, Transaction} from '@codemirror/state';
 import {
     Decoration,
     DecorationSet,
@@ -100,7 +100,7 @@ export function LineEditor({
                     Prec.high(keymap.of(journalKeymap(kind))),
                     keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap]),
                     completedVisibility.current.of(
-                        journalLineView(kind, kind === 'doing' ? showCompleted : true),
+                        editorVisibilityExtensions(kind, showCompleted),
                     ),
                     EditorView.updateListener.of((update: ViewUpdate) => {
                         const cameFromDisk = update.transactions.some(
@@ -148,7 +148,7 @@ export function LineEditor({
 
         view.dispatch({
             effects: completedVisibility.current.reconfigure(
-                journalLineView(kind, kind === 'doing' ? showCompleted : true),
+                editorVisibilityExtensions(kind, showCompleted),
             ),
         });
     }, [kind, showCompleted]);
@@ -163,6 +163,54 @@ export function LineEditor({
     }, [focusRequest]);
 
     return <div className={`file-editor ${kind}-editor`} ref={hostRef}/>;
+}
+
+function editorVisibilityExtensions(
+    kind: 'doing' | 'todo',
+    showCompleted: boolean,
+): Extension {
+    return [
+        journalLineView(kind, kind === 'doing' ? showCompleted : true),
+        kind === 'doing' ? doingInputGuard(!showCompleted) : [],
+    ];
+}
+
+export function doingInputGuard(completedHidden = false): Extension {
+    return EditorState.transactionFilter.of(transaction => {
+        const userEvent = transaction.annotation(Transaction.userEvent);
+        const lines = contentToLines(transaction.startState.doc.toString());
+        const hasCompleted = lines.some(line => isCompleted(line));
+        if (
+            !transaction.docChanged ||
+            !userEvent ||
+            (!transaction.isUserEvent('input.type') && !transaction.isUserEvent('input.paste')) ||
+            lines.some(line => line.trim() && !isCompleted(line)) ||
+            (hasCompleted && !completedHidden)
+        ) {
+            return transaction;
+        }
+
+        let inserted = '';
+        let changeCount = 0;
+        transaction.changes.iterChanges((_fromA, _toA, _fromB, _toB, text) => {
+            changeCount += 1;
+            inserted = text.toString();
+        });
+        if (changeCount !== 1 || !inserted.trim() || inserted.includes('\n')) {
+            return transaction;
+        }
+
+        const timestamped = ensureDoingTimestamp(inserted);
+        const from = transaction.startState.doc.length;
+        const prefix = from > 0 && transaction.startState.doc.sliceString(from - 1) !== '\n' ? '\n' : '';
+        const insert = `${prefix}${timestamped}`;
+        return {
+            changes: {from, insert},
+            selection: {anchor: from + insert.length},
+            annotations: Transaction.userEvent.of(userEvent),
+            scrollIntoView: true,
+        };
+    });
 }
 
 function journalKeymap(kind: 'doing' | 'todo') {
