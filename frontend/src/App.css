@@ -43,7 +43,12 @@
 }
 
 .welcome-shell {
+    position: relative;
     overflow: hidden;
+    /* The welcome view is application chrome: its labels, dates and button
+       text are not meant to be selected. Nothing inside it is editable. */
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .settings-shell {
@@ -638,6 +643,11 @@
     cursor: default;
     -webkit-user-select: none;
     user-select: none;
+}
+
+/* The welcome window paints a gradient, so its title band must not cover it. */
+.welcome-shell > .window-drag-region {
+    background: transparent;
 }
 
 .debug-checkpoint-button {
