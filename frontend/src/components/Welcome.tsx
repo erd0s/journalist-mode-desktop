@@ -1,3 +1,4 @@
+import {useEffect, useRef} from 'react';
 import {DayData, DaySummary} from '../api';
 import {Icon} from './Icons';
 
@@ -12,15 +13,59 @@ export function Welcome({days, onCreateToday, onOpenDay, embedded = false}: Welc
     const today = localISODate();
     const todaySummary = days.find(day => day.date === today);
     const previousDays = days.filter(day => day.date !== today);
+    const todayButton = useRef<HTMLButtonElement>(null);
+    const primaryActionPending = useRef(false);
+
+    const runPrimaryAction = async () => {
+        if (primaryActionPending.current) {
+            return;
+        }
+        primaryActionPending.current = true;
+        try {
+            if (todaySummary) {
+                await onOpenDay(today);
+            } else {
+                await onCreateToday();
+            }
+        } catch {
+            // The callbacks report their own failures in the app's error banner,
+            // so a rejection here carries nothing new to surface.
+        } finally {
+            primaryActionPending.current = false;
+        }
+    };
+
+    useEffect(() => {
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== 'Enter' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
+                return;
+            }
+            if (targetsAnotherControl(event.target, todayButton.current)) {
+                return;
+            }
+            // The embedded picker auto-focuses the today button, and a focused
+            // button fires its own click on Return, including on every key
+            // repeat. Cancelling the default keeps the action to one run per
+            // press.
+            event.preventDefault();
+            if (event.repeat) {
+                return;
+            }
+            void runPrimaryAction();
+        };
+        window.addEventListener('keydown', onKeyDown, true);
+        return () => window.removeEventListener('keydown', onKeyDown, true);
+    });
 
     return (
         <main className={`welcome-shell${embedded ? ' welcome-embedded' : ''}`}>
             {!embedded && <div className="window-drag-region" aria-hidden="true"/>}
             <section className="welcome-content">
                 <button
+                    ref={todayButton}
                     className="today-action"
                     autoFocus={embedded}
-                    onClick={() => todaySummary ? onOpenDay(today) : onCreateToday()}
+                    onClick={runPrimaryAction}
                 >
                     <span className="today-icon"><Icon name="calendar"/></span>
                     <span>
@@ -58,6 +103,20 @@ export function Welcome({days, onCreateToday, onOpenDay, embedded = false}: Welc
             </section>
         </main>
     );
+}
+
+const CONTROL_SELECTOR = 'button, input, textarea, select, a[href], [contenteditable]:not([contenteditable="false"])';
+
+// Return belongs to whichever control has focus: a previous-day row, the
+// error banner's dismiss button, or an editor still focused behind the day
+// picker. Only the today button, or no control at all, hands it to the
+// primary action.
+function targetsAnotherControl(target: EventTarget | null, todayButton: HTMLButtonElement | null): boolean {
+    if (!(target instanceof Element)) {
+        return false;
+    }
+    const control = target.closest(CONTROL_SELECTOR);
+    return control !== null && control !== todayButton;
 }
 
 function localISODate(): string {

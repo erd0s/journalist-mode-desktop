@@ -26,6 +26,21 @@ type RenderProps = {
     onOpenDay?: (date: string) => Promise<void>;
 };
 
+function welcomeShellDeclarations(property: string): string[] {
+    const values: string[] = [];
+    for (const sheet of document.styleSheets) {
+        for (const rule of sheet.cssRules) {
+            if (rule instanceof CSSStyleRule && rule.selectorText.split(',').some(s => s.trim() === '.welcome-shell')) {
+                const value = rule.style.getPropertyValue(property);
+                if (value) {
+                    values.push(value);
+                }
+            }
+        }
+    }
+    return values;
+}
+
 describe('Welcome', () => {
     let host: HTMLDivElement;
     let root: Root;
@@ -81,6 +96,15 @@ describe('Welcome', () => {
             // Guard: App.css must actually be applied for the next assertion to mean anything.
             expect(getComputedStyle(shell).display).toBe('flex');
             expect(getComputedStyle(shell).userSelect).toBe('none');
+            // jsdom's computed style drops the prefixed form, but WKWebView is
+            // what applies it, so check the declaration itself.
+            expect(welcomeShellDeclarations('-webkit-user-select')).toContain('none');
+        });
+
+        it('keeps the embedded day picker text unselectable too', async () => {
+            await render({embedded: true});
+            const shell = host.querySelector<HTMLElement>('.welcome-shell.welcome-embedded')!;
+            expect(getComputedStyle(shell).userSelect).toBe('none');
         });
     });
 
@@ -108,6 +132,126 @@ describe('Welcome', () => {
             const row = host.querySelector<HTMLButtonElement>('.day-row')!;
             await act(async () => row.click());
             expect(onOpenDay).toHaveBeenCalledExactlyOnceWith(PREVIOUS);
+        });
+
+        it('ignores a second click while the first action is still pending', async () => {
+            let finish!: () => void;
+            const onOpenDay = vi.fn(() => new Promise<void>(resolve => {
+                finish = resolve;
+            }));
+            await render({onOpenDay});
+            const button = host.querySelector<HTMLButtonElement>('.today-action')!;
+            await act(async () => button.click());
+            await act(async () => button.click());
+            expect(onOpenDay).toHaveBeenCalledTimes(1);
+            finish();
+        });
+    });
+
+    describe('Return key', () => {
+        async function pressReturn(target: EventTarget = document.body, init: KeyboardEventInit = {}) {
+            const event = new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, cancelable: true, ...init});
+            await act(async () => {
+                target.dispatchEvent(event);
+            });
+            return event;
+        }
+
+        it('opens today when today exists', async () => {
+            const {onOpenDay, onCreateToday} = await render();
+            await pressReturn();
+            expect(onOpenDay).toHaveBeenCalledExactlyOnceWith(TODAY);
+            expect(onCreateToday).not.toHaveBeenCalled();
+        });
+
+        it('starts today when today does not exist', async () => {
+            const {onOpenDay, onCreateToday} = await render({days: daysWithoutToday});
+            await pressReturn();
+            expect(onCreateToday).toHaveBeenCalledOnce();
+            expect(onOpenDay).not.toHaveBeenCalled();
+        });
+
+        it('claims the keystroke when the today button itself has focus', async () => {
+            // The embedded picker auto-focuses the button, and a focused button
+            // also fires click on Return, so the handler must cancel the default.
+            const {onOpenDay} = await render({embedded: true});
+            const button = host.querySelector<HTMLButtonElement>('.today-action')!;
+            button.focus();
+            const event = await pressReturn(button);
+            expect(event.defaultPrevented).toBe(true);
+            expect(onOpenDay).toHaveBeenCalledExactlyOnceWith(TODAY);
+        });
+
+        it('leaves Return to a focused previous-day row', async () => {
+            const {onOpenDay, onCreateToday} = await render();
+            const row = host.querySelector<HTMLButtonElement>('.day-row')!;
+            row.focus();
+            const event = await pressReturn(row);
+            expect(event.defaultPrevented).toBe(false);
+            // jsdom does not activate buttons on Return; a browser would, so
+            // replay that default and check the row, not today, is what opens.
+            await act(async () => row.click());
+            expect(onOpenDay).toHaveBeenCalledExactlyOnceWith(PREVIOUS);
+            expect(onCreateToday).not.toHaveBeenCalled();
+        });
+
+        it('claims auto-repeated Return on the focused today button without re-running', async () => {
+            const {onOpenDay} = await render({embedded: true});
+            const button = host.querySelector<HTMLButtonElement>('.today-action')!;
+            button.focus();
+            const event = await pressReturn(button, {repeat: true});
+            expect(event.defaultPrevented).toBe(true);
+            expect(onOpenDay).not.toHaveBeenCalled();
+        });
+
+        it('recovers after a failed action without leaking the rejection', async () => {
+            const onCreateToday = vi.fn()
+                .mockRejectedValueOnce(new Error('journal folder is read-only'))
+                .mockResolvedValue({} as DayData);
+            await render({days: daysWithoutToday, onCreateToday});
+            await pressReturn();
+            await pressReturn();
+            expect(onCreateToday).toHaveBeenCalledTimes(2);
+        });
+
+        it('leaves Return alone inside an editor behind the day picker', async () => {
+            const {onOpenDay} = await render({embedded: true});
+            const editor = document.createElement('div');
+            editor.setAttribute('contenteditable', 'true');
+            document.body.appendChild(editor);
+            try {
+                const event = await pressReturn(editor);
+                expect(event.defaultPrevented).toBe(false);
+            } finally {
+                editor.remove();
+            }
+            expect(onOpenDay).not.toHaveBeenCalled();
+        });
+
+        it('ignores modified and auto-repeated Return presses', async () => {
+            const {onOpenDay} = await render();
+            await pressReturn(document.body, {shiftKey: true});
+            await pressReturn(document.body, {metaKey: true});
+            await pressReturn(document.body, {ctrlKey: true});
+            await pressReturn(document.body, {altKey: true});
+            await pressReturn(document.body, {repeat: true});
+            expect(onOpenDay).not.toHaveBeenCalled();
+        });
+
+        it('runs the action once while it is still pending', async () => {
+            let finish!: () => void;
+            const onOpenDay = vi.fn(() => new Promise<void>(resolve => {
+                finish = resolve;
+            }));
+            await render({onOpenDay});
+            await pressReturn();
+            await pressReturn();
+            expect(onOpenDay).toHaveBeenCalledTimes(1);
+
+            finish();
+            await act(async () => {});
+            await pressReturn();
+            expect(onOpenDay).toHaveBeenCalledTimes(2);
         });
     });
 });
