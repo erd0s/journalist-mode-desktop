@@ -15,6 +15,7 @@ export function Welcome({days, onCreateToday, onOpenDay, embedded = false}: Welc
 
     return (
         <main className={`welcome-shell${embedded ? ' welcome-embedded' : ''}`}>
+            {!embedded && <div className="window-drag-region" aria-hidden="true"/>}
             <section className="welcome-content">
                 <button
                     className="today-action"
