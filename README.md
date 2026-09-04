@@ -38,6 +38,7 @@ The app does not sort Todo entries or provide file synchronization.
 | Shortcut | Action |
 | --- | --- |
 | `Return` | Add the next Todo line or append a child to the active Doing chain |
+| `Return` in the day picker or on the welcome window | Open today, or start it when it does not exist yet |
 | `Shift-Return` | Complete the selected Todo entry or deepest active Doing entry |
 | `Shift-Escape` | Cancel the selected Todo entry or deepest active Doing entry |
 | `Command-Shift-C` | Copy Todo text without its date or completion markers |
