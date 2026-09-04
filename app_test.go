@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 func TestDefaultSettingsUseDocumentsJM(t *testing.T) {
@@ -222,6 +224,39 @@ func TestPaneFocusMenuUsesTodoAndMatchingDoingShortcuts(t *testing.T) {
 			got.accelerator != "CmdOrCtrl+"+string(rune('0'+streamIndex)) ||
 			got.position != streamIndex {
 			t.Fatalf("Doing %d menu item = %#v", streamIndex, got)
+		}
+	}
+}
+
+func TestDayPickerMenuBindsOpenAndNewShortcuts(t *testing.T) {
+	items := dayPickerMenuItems()
+	if len(items) != 2 {
+		t.Fatalf("dayPickerMenuItems() has %d items, want 2", len(items))
+	}
+	if got := items[0]; got.label != "Open Journal Day…" || got.accelerator != "CmdOrCtrl+O" {
+		t.Fatalf("Open menu item = %#v", got)
+	}
+	if got := items[1]; got.label != "New Journal Day…" || got.accelerator != "CmdOrCtrl+N" {
+		t.Fatalf("New menu item = %#v", got)
+	}
+}
+
+func TestDayPickerMenuAddsEveryShortcutToTheMenu(t *testing.T) {
+	menu := application.NewMenu()
+	addDayPickerItems(menu, func(*application.Context) {})
+	for _, want := range dayPickerMenuItems() {
+		item := menu.FindByLabel(want.label)
+		if item == nil {
+			t.Fatalf("menu has no %q item", want.label)
+		}
+		// Wails normalises accelerators per platform, so compare against a
+		// reference item built from the same string.
+		reference := application.NewMenuItem("reference").SetAccelerator(want.accelerator)
+		if got := item.GetAccelerator(); got != reference.GetAccelerator() {
+			t.Fatalf("%q accelerator = %q, want %q", want.label, got, reference.GetAccelerator())
+		}
+		if item.Hidden() {
+			t.Fatalf("%q is hidden; hidden items do not match key equivalents on macOS", want.label)
 		}
 	}
 }

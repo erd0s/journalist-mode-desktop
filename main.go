@@ -247,6 +247,27 @@ func paneFocusMenuItems() []paneMenuItem {
 	return items
 }
 
+type menuShortcut struct {
+	label       string
+	accelerator string
+}
+
+// dayPickerMenuItems lists the File menu entries that open the day picker.
+func dayPickerMenuItems() []menuShortcut {
+	return []menuShortcut{
+		{label: "Open Journal Day…", accelerator: "CmdOrCtrl+O"},
+		{label: "New Journal Day…", accelerator: "CmdOrCtrl+N"},
+	}
+}
+
+// addDayPickerItems is the only place the day-picker entries are added, so
+// every shortcut in dayPickerMenuItems reaches the same handler.
+func addDayPickerItems(menu *application.Menu, openDayPicker func(*application.Context)) {
+	for _, item := range dayPickerMenuItems() {
+		menu.Add(item.label).SetAccelerator(item.accelerator).OnClick(openDayPicker)
+	}
+}
+
 func applicationMenu(native *application.App, service *App, desktop *Desktop) *application.Menu {
 	result := native.NewMenu()
 	if runtime.GOOS == "darwin" {
@@ -254,7 +275,7 @@ func applicationMenu(native *application.App, service *App, desktop *Desktop) *a
 	}
 
 	fileMenu := result.AddSubmenu("File")
-	fileMenu.Add("Open Journal Day…").SetAccelerator("CmdOrCtrl+O").OnClick(func(*application.Context) {
+	addDayPickerItems(fileMenu, func(*application.Context) {
 		if window := native.Window.Current(); window != nil {
 			dispatchToWindow(window, "menu:open")
 			return
