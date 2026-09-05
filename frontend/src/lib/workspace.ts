@@ -20,6 +20,7 @@ export type SaveBatch = {
 
 type Shortcut = {
     key: string;
+    code?: string;
     metaKey: boolean;
     ctrlKey: boolean;
     altKey: boolean;
@@ -33,6 +34,11 @@ export function workspaceActionForShortcut(shortcut: Shortcut): WorkspaceAction 
     }
 
     const key = shortcut.key.toLowerCase();
+    // Option can change event.key (for example, Z becomes Ω on a Mac).
+    if (shortcut.ctrlKey && shortcut.altKey && !shortcut.metaKey && !shortcut.shiftKey
+        && (shortcut.code === 'KeyZ' || key === 'z')) {
+        return {type: 'toggle-zoom'};
+    }
     if (shortcut.altKey && !shortcut.shiftKey) {
         if (key === 'arrowleft') {
             return {type: 'move-focus', delta: -1};
@@ -49,9 +55,6 @@ export function workspaceActionForShortcut(shortcut: Shortcut): WorkspaceAction 
         return null;
     }
     if (shortcut.shiftKey) {
-        if (key === 'z') {
-            return {type: 'toggle-zoom'};
-        }
         if (key === 'h') {
             return {type: 'toggle-all-doing-history'};
         }

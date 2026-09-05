@@ -480,13 +480,14 @@ export function DayWorkspace({
 
     useEffect(() => {
         const shortcut = (event: KeyboardEvent) => {
-            // The native application menu owns these accelerators in Wails;
-            // this listener keeps the browser preview and tests functional.
-            if (interactionDisabled || appAPI.isNative()) {
+            if (interactionDisabled) {
                 return;
             }
             const action = workspaceActionForShortcut(event);
-            if (!action) {
+            // A focused WKWebView editor can receive Control-Option-Z before
+            // the native menu. Consume it here when delivered to the webview.
+            // Other native shortcuts remain owned by menu accelerators.
+            if (!action || (appAPI.isNative() && action.type !== 'toggle-zoom')) {
                 return;
             }
             if (handleWorkspaceAction(action)) {

@@ -268,6 +268,11 @@ func addDayPickerItems(menu *application.Menu, openDayPicker func(*application.C
 	}
 }
 
+func addPaneZoomItem(menu *application.Menu, toggleZoom func(*application.Context)) {
+	// Command-Shift-Z belongs to the native Edit menu's Redo action.
+	menu.Add("Toggle Focused Pane Zoom").SetAccelerator("Ctrl+Option+Z").OnClick(toggleZoom)
+}
+
 func applicationMenu(native *application.App, service *App, desktop *Desktop) *application.Menu {
 	result := native.NewMenu()
 	if runtime.GOOS == "darwin" {
@@ -297,7 +302,7 @@ func applicationMenu(native *application.App, service *App, desktop *Desktop) *a
 
 	result.AddRole(application.EditMenu)
 	viewMenu := result.AddSubmenu("View")
-	viewMenu.Add("Toggle Focused Pane Zoom").SetAccelerator("CmdOrCtrl+Shift+Z").OnClick(func(*application.Context) {
+	addPaneZoomItem(viewMenu, func(*application.Context) {
 		emitToCurrent(native, "menu:toggle-pane-zoom")
 	})
 	viewMenu.Add("Toggle All Doing History").SetAccelerator("CmdOrCtrl+Shift+H").OnClick(func(*application.Context) {

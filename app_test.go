@@ -228,6 +228,25 @@ func TestPaneFocusMenuUsesTodoAndMatchingDoingShortcuts(t *testing.T) {
 	}
 }
 
+func TestPaneZoomShortcutDoesNotConflictWithRedo(t *testing.T) {
+	menu := application.NewMenu()
+	addPaneZoomItem(menu, func(*application.Context) {})
+	zoom := menu.FindByLabel("Toggle Focused Pane Zoom")
+	if zoom == nil {
+		t.Fatal("pane zoom item is missing")
+	}
+	want := application.NewMenuItem("reference").SetAccelerator("Ctrl+Alt+Z").GetAccelerator()
+	if got := zoom.GetAccelerator(); got != want {
+		t.Fatalf("zoom accelerator = %q, want %q", got, want)
+	}
+	if zoom.GetAccelerator() == application.NewRedoMenuItem().GetAccelerator() {
+		t.Fatal("pane zoom conflicts with the native Redo shortcut")
+	}
+	if zoom.Hidden() {
+		t.Fatal("hidden menu items cannot receive native key equivalents")
+	}
+}
+
 func TestDayPickerMenuBindsOpenAndNewShortcuts(t *testing.T) {
 	items := dayPickerMenuItems()
 	if len(items) != 2 {

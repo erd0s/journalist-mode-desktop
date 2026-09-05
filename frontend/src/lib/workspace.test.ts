@@ -10,6 +10,7 @@ import {
 } from './workspace';
 
 const command = (key: string, modifiers: Partial<{
+    code: string;
     metaKey: boolean;
     ctrlKey: boolean;
     altKey: boolean;
@@ -30,11 +31,25 @@ describe('workspaceActionForShortcut', () => {
         expect(command('ArrowRight', {altKey: true})).toEqual({type: 'move-focus', delta: 1});
     });
 
-    it('maps pane visibility and zoom shortcuts', () => {
-        expect(command('z', {shiftKey: true})).toEqual({type: 'toggle-zoom'});
+    it('maps pane visibility and history shortcuts', () => {
         expect(command('b')).toEqual({type: 'focus-todo'});
         expect(command('h', {shiftKey: true})).toEqual({type: 'toggle-all-doing-history'});
         expect(command('h', {altKey: true})).toEqual({type: 'toggle-focused-doing-history'});
+    });
+
+    it('zooms with Control-Option-Z, including an Option-transformed key', () => {
+        const modifiers = {metaKey: false, ctrlKey: true, altKey: true};
+        expect(command('z', modifiers)).toEqual({type: 'toggle-zoom'});
+        expect(command('Ω', {...modifiers, code: 'KeyZ'})).toEqual({type: 'toggle-zoom'});
+        expect(command('z', {...modifiers, repeat: true})).toBeNull();
+        expect(command('z', {...modifiers, shiftKey: true})).toBeNull();
+        expect(command('z', {...modifiers, metaKey: true})).toBeNull();
+        expect(command('z', {altKey: true})).toBeNull();
+    });
+
+    it('leaves the standard redo shortcuts to the editor', () => {
+        expect(command('z', {shiftKey: true})).toBeNull();
+        expect(command('z', {metaKey: false, ctrlKey: true, shiftKey: true})).toBeNull();
     });
 
     it('maps numbers to matching Doing streams and rejects conflicting modifiers or repeats', () => {

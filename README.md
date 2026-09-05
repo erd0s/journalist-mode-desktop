@@ -50,7 +50,7 @@ The app does not sort Todo entries or provide file synchronization.
 | `Command-B` | Focus and reveal Todo; hide it when Todo already has focus |
 | `Command-1` … `Command-9` | Focus the open Doing stream with the matching number |
 | `Command-Option-Left` or `Command-Option-Right` | Focus the previous or next visible pane, wrapping at either edge |
-| `Command-Shift-Z` | Toggle the focused pane between its normal width and the full workspace |
+| `Control-Option-Z` | Toggle the focused pane between its normal width and the full workspace |
 | `Command-,` | Open Settings |
 | `Command-W` | Close the current window, prompting if it has unsaved changes |
 | <kbd>Command</kbd>-<kbd>&#96;</kbd> | Cycle through open journal windows |
