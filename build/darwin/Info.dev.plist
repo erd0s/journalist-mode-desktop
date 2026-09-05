@@ -12,11 +12,11 @@
         <key>CFBundleIdentifier</key>
         <string>com.dirkstewart.journalist-mode</string>
         <key>CFBundleVersion</key>
-        <string>0.6.0</string>
+        <string>0.6.1</string>
         <key>CFBundleGetInfoString</key>
         <string>A plain-text workspace for parallel streams of thought.</string>
         <key>CFBundleShortVersionString</key>
-        <string>0.6.0</string>
+        <string>0.6.1</string>
         <key>CFBundleIconFile</key>
         <string>icons</string>
         <key>LSMinimumSystemVersion</key>
