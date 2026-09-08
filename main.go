@@ -71,7 +71,7 @@ func main() {
 			EncryptionKey: singleInstanceKey,
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
 				if desktop != nil {
-					desktop.OpenWelcomeWindow()
+					desktop.Reopen()
 				}
 			},
 		},
@@ -85,9 +85,7 @@ func main() {
 
 	native.Menu.Set(applicationMenu(native, service, desktop))
 	native.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(*application.ApplicationEvent) {
-		if len(native.Window.GetAll()) == 0 {
-			desktop.OpenWelcomeWindow()
-		}
+		desktop.Reopen()
 	})
 	desktop.OpenWelcomeWindow()
 
@@ -99,6 +97,51 @@ func main() {
 func (d *Desktop) OpenWelcomeWindow() {
 	d.windowMu.Lock()
 	defer d.windowMu.Unlock()
+	d.openWelcomeWindow()
+}
+
+// Reopen handles both a macOS reopen event and a second process launch.
+func (d *Desktop) Reopen() {
+	d.windowMu.Lock()
+	defer d.windowMu.Unlock()
+
+	// Application events and single-instance callbacks run off the UI thread.
+	application.InvokeSync(d.native.Show)
+	if !focusReopenWindow(d.native.Window.GetAll(), d.native.Window.Current()) {
+		d.openWelcomeWindow()
+	}
+}
+
+// focusReopenWindow keeps the current window when possible. With no current
+// window (for example, all windows minimised), use a stable creation order;
+// Wails returns its window map in an unspecified order.
+func focusReopenWindow(windows []application.Window, current application.Window) bool {
+	var target application.Window
+	for _, window := range windows {
+		if current != nil && window.ID() == current.ID() {
+			target = window
+			break
+		}
+		if target == nil || window.ID() < target.ID() {
+			target = window
+		}
+	}
+	if target == nil {
+		return false
+	}
+
+	// Restore also exits fullscreen and unmaximises. Reopening should preserve
+	// those states and only undo minimisation.
+	if target.IsMinimised() {
+		target.UnMinimise()
+	}
+	target.Show()
+	target.Focus()
+	return true
+}
+
+// openWelcomeWindow requires windowMu, including when called by Reopen.
+func (d *Desktop) openWelcomeWindow() {
 
 	if existing, ok := d.native.Window.GetByName(welcomeWindow); ok {
 		existing.Show()
