@@ -1,0 +1,249 @@
+{
+  "date": "2026-09-08",
+  "platform": "26.6.2",
+  "sourceBase": "6fbb77b",
+  "additionalSourceChange": "opt-in frontend hint event trace",
+  "automated": {
+    "frontendTests": 95,
+    "goRace": "passed",
+    "publisherTests": 2
+  },
+  "nativeCases": [
+    {
+      "test": "fixture-launch",
+      "time": "2026-09-08T16:41:35.144000",
+      "pid": 63601
+    },
+    {
+      "test": "standalone-arrows-return",
+      "time": "2026-09-08T16:41:37.476704",
+      "pid": 63601
+    },
+    {
+      "test": "modal-arrows-return",
+      "time": "2026-09-08T16:41:39.803150",
+      "pid": 63601
+    },
+    {
+      "test": "paste-retains-single-done-boundary",
+      "time": "2026-09-08T16:41:42.344471",
+      "pid": 63601
+    },
+    {
+      "test": "paste-single-undo-redo",
+      "time": "2026-09-08T16:41:45.251200",
+      "pid": 63601
+    },
+    {
+      "test": "single-task-date",
+      "time": "2026-09-08T16:41:47.053865",
+      "pid": 63601
+    },
+    {
+      "test": "multiline-date-exemptions-and-document-replacement",
+      "time": "2026-09-08T16:41:48.901869",
+      "pid": 63601
+    },
+    {
+      "test": "paste-exact-file-content",
+      "time": "2026-09-08T16:41:49.440656",
+      "pid": 63601
+    },
+    {
+      "test": "doing-paste-remains-independent",
+      "time": "2026-09-08T16:41:51.362557",
+      "pid": 63601
+    },
+    {
+      "test": "responsive-layout-zoom-hide-history-preserve-files",
+      "time": "2026-09-08T16:42:04.644927",
+      "pid": 63601
+    },
+    {
+      "test": "native-command-t-adds-exactly-one-pane",
+      "time": "2026-09-08T16:42:05.188253",
+      "pid": 63601
+    },
+    {
+      "test": "debug-controls-appear-only-when-enabled-and-automatic-checks-can-be-disabled",
+      "time": "2026-09-08T16:42:19.057600",
+      "pid": 63601
+    },
+    {
+      "test": "three-journal-window-cycle-wraps-both-directions",
+      "time": "2026-09-08T16:42:45.575821",
+      "pid": 63601
+    },
+    {
+      "test": "settings-shows-running-binary-version",
+      "time": "2026-09-08T16:42:46.173619",
+      "pid": 63601
+    },
+    {
+      "test": "window-cycle-excludes-settings",
+      "time": "2026-09-08T16:42:47.007872",
+      "pid": 63601
+    },
+    {
+      "test": "reopen-preserves-process-and-window-count",
+      "time": "2026-09-08T16:43:07.407893",
+      "pid": 63601
+    },
+    {
+      "test": "update-empty-handled",
+      "time": "2026-09-08T16:43:19.526645",
+      "pid": 63601
+    },
+    {
+      "test": "update-older-handled",
+      "time": "2026-09-08T16:43:21.341530",
+      "pid": 63601
+    },
+    {
+      "test": "update-beta-handled",
+      "time": "2026-09-08T16:43:23.159081",
+      "pid": 63601
+    },
+    {
+      "test": "update-incompatible-os-handled",
+      "time": "2026-09-08T16:43:24.970749",
+      "pid": 63601
+    },
+    {
+      "test": "update-offline-handled",
+      "time": "2026-09-08T16:43:27.148442",
+      "pid": 63601
+    },
+    {
+      "test": "update-malformed-handled",
+      "time": "2026-09-08T16:43:45.352306",
+      "pid": 63601
+    },
+    {
+      "test": "update-invalid-signature-rejected",
+      "time": "2026-09-08T16:43:49.193796",
+      "pid": 63601
+    },
+    {
+      "test": "update-unsigned-rejected",
+      "time": "2026-09-08T16:43:53.420750",
+      "pid": 63601
+    },
+    {
+      "test": "update-interrupted-rejected",
+      "time": "2026-09-08T16:43:57.605493",
+      "pid": 63601
+    },
+    {
+      "test": "update-later-keeps-editing",
+      "time": "2026-09-08T16:44:00.410916",
+      "pid": 63601
+    },
+    {
+      "test": "update-cancel-keeps-all-unsaved-journals",
+      "time": "2026-09-08T16:44:11.839133",
+      "pid": 63601
+    },
+    {
+      "test": "discard-consent-is-reversible-when-another-journal-cancels",
+      "time": "2026-09-08T16:44:14.722506",
+      "pid": 63601
+    },
+    {
+      "test": "signed-native-upgrade-new-process-new-binary-same-location-restored-journals",
+      "time": "2026-09-08T16:44:20.161645",
+      "pid": 68496,
+      "oldPid": 63601,
+      "newPid": 68496,
+      "version": "0.7.1"
+    },
+    {
+      "test": "shortcut-reference-blocks-editor-actions-and-command-w-dismisses",
+      "time": "2026-09-08T16:44:57.480444",
+      "pid": 68496
+    },
+    {
+      "test": "shortcut-reference-escape",
+      "time": "2026-09-08T16:44:58.536531",
+      "pid": 68496
+    },
+    {
+      "test": "reopen-preserves-full-screen",
+      "time": "2026-09-08T16:46:08.129418",
+      "pid": 68496
+    },
+    {
+      "test": "window-cycle-away-and-back-preserves-full-screen",
+      "time": "2026-09-08T16:46:22.757796",
+      "pid": 68496
+    },
+    {
+      "test": "cleanup-original-files-settings-clipboard-and-journal-restored",
+      "time": "2026-09-08T16:46:29.982995",
+      "pid": 72038,
+      "originalFiles": 497
+    },
+    {
+      "test": "standalone-arrows-return",
+      "time": "2026-09-08T16:54:11.721173",
+      "pid": 82286
+    },
+    {
+      "test": "modal-arrows-return",
+      "time": "2026-09-08T16:54:14.032077",
+      "pid": 82286
+    },
+    {
+      "test": "native-focused-history-toggles-without-editing",
+      "time": "2026-09-08T16:54:37.866032",
+      "pid": 82286
+    },
+    {
+      "test": "cleanup-original-files-settings-clipboard-and-journal-restored",
+      "time": "2026-09-08T16:56:59.823828",
+      "pid": 90315,
+      "originalFiles": 497
+    },
+    {
+      "test": "fixture-launch",
+      "time": "2026-09-08T17:02:06.319127",
+      "pid": 99755
+    },
+    {
+      "test": "native-left-command-hints-visually-confirmed",
+      "time": "2026-09-08T17:03:01.951580",
+      "pid": 99755
+    },
+    {
+      "test": "cleanup-original-files-settings-clipboard-and-journal-restored",
+      "time": "2026-09-08T17:03:06.853704",
+      "pid": 1963,
+      "originalFiles": 497
+    }
+  ],
+  "upgrade": {
+    "aVersion": "0.7.0",
+    "bVersion": "0.7.1",
+    "aExecutableSHA256": "4724393e17dc5c5d6b4807aa0e1b4384d08abe23a8908c81e13849b3cdf520d9",
+    "bExecutableSHA256": "9538bbc21185579433355c0589d7fc6fc0924327845ab7ac2631d1aa8cdd79b1",
+    "archiveSHA256": "c752a104f98822aac4a3d59ed219cc0a0b22f5cc94328e562957907ef246f118",
+    "length": 5688816
+  },
+  "finalExecutableSHA256": "e0b6db09234c413a4a11f281a486c0f25667c23c398ad548403ce629db8d3c86",
+  "automatedOnly": [
+    "stream-number gaps in hints",
+    "quick-shortcut hint suppression",
+    "overlapping Command keys and stale events",
+    "blur and visibility hint reset",
+    "failed and in-flight saves during coordinated quit"
+  ],
+  "harnessCorrections": [
+    "Use CFEqual to identify accessibility elements; CFHash is not a unique identity.",
+    "Command hints are aria-hidden; inspect screenshots, not AX text.",
+    "Vision OCR missed small hint labels; native show/reset traces and visual inspection supply evidence.",
+    "Synthetic modifier sequences need explicit release boundaries.",
+    "Wait for the transient second process to exit during reopen.",
+    "Relaunch restores dates in sorted order, which determines the new creation order."
+  ],
+  "cleanup": "Scratch journals removed; original journal, clipboard and settings restored. Final three batches matched all pre-batch original file hashes. The first batch observed one existing-file change while the old app was closing, before the fixture app started; its contents were preserved."
+}

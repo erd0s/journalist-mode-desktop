@@ -12,11 +12,11 @@
         <key>CFBundleIdentifier</key>
         <string>com.dirkstewart.journalist-mode</string>
         <key>CFBundleVersion</key>
-        <string>0.6.1</string>
+        <string>0.7.0</string>
         <key>CFBundleGetInfoString</key>
         <string>A plain-text workspace for parallel streams of thought.</string>
         <key>CFBundleShortVersionString</key>
-        <string>0.6.1</string>
+        <string>0.7.0</string>
         <key>CFBundleIconFile</key>
         <string>icons</string>
         <key>LSMinimumSystemVersion</key>
@@ -27,5 +27,17 @@
         <string>true</string>
         <key>NSHumanReadableCopyright</key>
         <string>Copyright © 2026 Dirk Stewart</string>
+        <key>SUPublicEDKey</key>
+        <string>TXUczpa/Xy8738qMoksh4T4GEHu1ZF9mMh3BAZbiPT0=</string>
+        <key>SUFeedURL</key>
+        <string>https://raw.githubusercontent.com/erd0s/journalist-mode-desktop/main/updates/appcast.xml</string>
+        <key>SUEnableAutomaticChecks</key>
+        <true/>
+        <key>SUAllowsAutomaticUpdates</key>
+        <false/>
+        <key>SUVerifyUpdateBeforeExtraction</key>
+        <true/>
+        <key>SUScheduledCheckInterval</key>
+        <integer>86400</integer>
     </dict>
 </plist>

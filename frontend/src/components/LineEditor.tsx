@@ -66,12 +66,20 @@ export function LineEditor({
             return;
         }
 
+        const host = hostRef.current;
+        const updatePadding = (width: number) => {
+            host.style.setProperty('--pane-padding-top', `${Math.min(20, Math.max(6, width * 0.04))}px`);
+            host.style.setProperty('--pane-padding-side', `${Math.min(22, Math.max(6, width * 0.044))}px`);
+        };
+        updatePadding(host.clientWidth);
+
         const view = new EditorView({
-            parent: hostRef.current,
+            parent: host,
             state: EditorState.create({
                 doc: linesToContent(lines),
                 extensions: [
                     history(),
+                    kind === 'todo' ? todoPasteDates() : [],
                     EditorView.lineWrapping,
                     EditorView.contentAttributes.of({
                         'aria-label': `${kind === 'doing' ? 'Doing' : 'Todo'} file editor`,
@@ -136,8 +144,17 @@ export function LineEditor({
             }),
         });
 
+        // Observe the editor itself: window resizing, hidden panes and zoom all
+        // change this width. ResizeObserver is already required by CodeMirror;
+        // this also works in WebKit versions without container query units.
+        const paddingObserver = new ResizeObserver(entries => {
+            updatePadding(entries[0].contentRect.width);
+            view.requestMeasure();
+        });
+        paddingObserver.observe(host);
         viewRef.current = view;
         return () => {
+            paddingObserver.disconnect();
             view.destroy();
             viewRef.current = undefined;
         };
@@ -185,6 +202,65 @@ export function LineEditor({
     }, [focusRequest]);
 
     return <div className={`file-editor ${kind}-editor`} ref={hostRef}/>;
+}
+
+// Paste bypasses inputHandler. Date the resulting task lines in the same
+// transaction, so replacement, selection mapping and undo stay CodeMirror's.
+function todoPasteDates(): Extension {
+    return EditorState.transactionFilter.of(transaction => {
+        if (!transaction.docChanged || !transaction.isUserEvent('input.paste')) {
+            return transaction;
+        }
+        // A Todo file has one Done boundary. Keep an existing boundary when
+        // pasting another block, without moving any pasted or existing tasks.
+        // A boundary replaced by the selection does not count as surviving.
+        const survivingDividers = new Set<number>();
+        for (let number = 1; number <= transaction.startState.doc.lines; number += 1) {
+            const line = transaction.startState.doc.line(number);
+            if (line.text.trim() !== '---') continue;
+            const from = transaction.changes.mapPos(line.from, 1);
+            const to = transaction.changes.mapPos(line.to, -1);
+            if (to - from === line.length && transaction.newDoc.sliceString(from, to) === line.text
+                && transaction.newDoc.lineAt(from).text.trim() === '---') {
+                survivingDividers.add(transaction.newDoc.lineAt(from).number);
+            }
+        }
+        const affected = new Set<number>();
+        transaction.changes.iterChanges((fromA, toA, fromB, toB) => {
+            const original = transaction.startState.doc.lineAt(fromA);
+            const first = transaction.newDoc.lineAt(fromB).number;
+            for (let number = first;
+                fromB < toB && number <= transaction.newDoc.lineAt(toB - 1).number;
+                number += 1) {
+                // Inserting into an existing task must not rewrite its prefix.
+                // A wholly replaced line, or a blank line, is a new task.
+                const insertedBeforeLine = fromA === original.from
+                    && transaction.newDoc.line(number).to < toB;
+                if (number === first && original.text.trim()
+                    && !insertedBeforeLine
+                    && !(fromA === original.from && toA >= original.to)) {
+                    continue;
+                }
+                affected.add(number);
+            }
+        });
+        const now = new Date();
+        const changes = [...affected].sort((a, b) => a - b).flatMap(number => {
+            const line = transaction.newDoc.line(number);
+            if (line.text.trim() === '---' && survivingDividers.size && !survivingDividers.has(number)) {
+                return [{from: line.from, to: line.to, insert: ''}];
+            }
+            const dated = ensureTodoDate(line.text, now);
+            if (dated === line.text) {
+                return [];
+            }
+            const indentation = line.text.length - line.text.trimStart().length;
+            return [{from: line.from + indentation, insert: dated.slice(
+                indentation, indentation + dated.length - line.text.length,
+            )}];
+        });
+        return changes.length ? [transaction, {changes, sequential: true}] : transaction;
+    });
 }
 
 function editorVisibilityExtensions(
@@ -379,6 +455,9 @@ export function journalDecorations(
         }
 
         if (kind === 'todo') {
+            if (line.text.trim() && !/^\s*(#|---)/.test(line.text)) {
+                ranges.push(Decoration.line({class: 'cm-todo-task'}).range(line.from));
+            }
             const category = /^(\s*)#\s*(.*)$/.exec(line.text);
             if (category) {
                 const markerFrom = line.from + category[1].length;

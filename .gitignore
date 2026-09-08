@@ -11,3 +11,6 @@ frontend/node_modules/
 # Design notes and screenshots used during local development.
 tmp/
 welcome-feedback.png
+
+# Pinned Sparkle framework and release tools fetched by scripts/fetch-sparkle.sh.
+build/sparkle/

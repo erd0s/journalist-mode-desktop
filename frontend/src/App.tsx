@@ -4,10 +4,13 @@ import './App.css';
 import {appAPI, DayData, DaySummary, Settings} from './api';
 import {DayWorkspace, WorkspaceSaveState} from './components/DayWorkspace';
 import {SettingsView} from './components/SettingsView';
+import {ShortcutReference} from './components/ShortcutReference';
 import {Welcome} from './components/Welcome';
 import {needsCloseConfirmation, WorkspaceAction, WorkspaceActionRequest} from './lib/workspace';
 
 type Screen = 'welcome' | 'settings' | 'day';
+type QuitRequest = {token: number; update: boolean};
+
 type ClosePrompt = 'confirm' | 'waiting' | 'saving' | 'failed' | null;
 
 export default function App() {
@@ -23,12 +26,17 @@ export default function App() {
     const [discardRequest, setDiscardRequest] = useState(0);
     const [workspaceSaveState, setWorkspaceSaveState] = useState<WorkspaceSaveState>('saved');
     const [closePrompt, setClosePrompt] = useState<ClosePrompt>(null);
+    const [quitRequest, setQuitRequest] = useState<QuitRequest | null>(null);
+    const quitRequestRef = useRef<QuitRequest | null>(null);
+    const cancelledQuitToken = useRef(0);
     const [newDoingRequest, setNewDoingRequest] = useState(0);
     const [workspaceActionRequest, setWorkspaceActionRequest] = useState<WorkspaceActionRequest>({
         action: {type: 'focus-todo'},
         revision: 0,
     });
     const [dayPickerOpen, setDayPickerOpen] = useState(false);
+    const [shortcutsOpen, setShortcutsOpen] = useState(false);
+    const shortcutReturnFocus = useRef<HTMLElement | null>(null);
     const settingsReturnScreen = useRef<Screen>('welcome');
     const closeSaveRevision = useRef(0);
     const workspaceSaveStateRef = useRef<WorkspaceSaveState>('saved');
@@ -94,7 +102,7 @@ export default function App() {
     };
 
     const showDayPicker = () => {
-        if (screen === 'welcome' || closePrompt) {
+        if (screen === 'welcome' || closePrompt || shortcutsOpen || quitRequestRef.current) {
             return;
         }
         setDayPickerOpen(true);
@@ -102,7 +110,7 @@ export default function App() {
     };
 
     const openSettings = () => {
-        if (closePrompt) {
+        if (closePrompt || shortcutsOpen || quitRequestRef.current) {
             return;
         }
         void appAPI.getDebugLogDirectory()
@@ -129,11 +137,42 @@ export default function App() {
         }));
     };
 
+    const cancelQuitOrClose = () => {
+        const request = quitRequestRef.current;
+        if (request) {
+            void appAPI.cancelQuit(request.token).catch(reason => setError(errorMessage(reason)));
+        } else {
+            setClosePrompt(null);
+        }
+    };
+
     const closeCurrentWindow = () => {
-        void appAPI.closeWindow().catch(reason => setError(errorMessage(reason)));
+        const request = quitRequestRef.current;
+        const action = request ? appAPI.approveQuit(request.token) : appAPI.closeWindow();
+        void action.catch(reason => {
+            setError(errorMessage(reason));
+            if (request) void appAPI.cancelQuit(request.token);
+        });
+    };
+
+    const prepareQuit = (request: QuitRequest) => {
+        if (request.token <= cancelledQuitToken.current) return;
+        quitRequestRef.current = request;
+        setQuitRequest(request);
+        setShortcutsOpen(false);
+        setDayPickerOpen(false);
+        const state = workspaceSaveStateRef.current;
+        if (state === 'saving') setClosePrompt('waiting');
+        else if (needsCloseConfirmation(state)) setClosePrompt('confirm');
+        else closeCurrentWindow();
     };
 
     const requestWindowClose = () => {
+        if (quitRequestRef.current) return;
+        if (shortcutsOpen) {
+            setShortcutsOpen(false);
+            return;
+        }
         if (closePrompt) {
             return;
         }
@@ -180,29 +219,30 @@ export default function App() {
         }
 
         const stopOpen = Events.On('menu:open', showDayPicker);
+        const stopCommand = Events.On('menu:command-used', () => window.dispatchEvent(new Event('journalist:native-command')));
         const stopSave = Events.On('menu:save', () => {
-            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt && !shortcutsOpen && !quitRequestRef.current) {
                 setSaveRequest(request => request + 1);
             }
         });
         const stopToggleAllDoingHistory = Events.On('menu:toggle-all-doing-history', () => {
-            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt && !shortcutsOpen && !quitRequestRef.current) {
                 requestWorkspaceAction({type: 'toggle-all-doing-history'});
             }
         });
         const stopToggleFocusedDoingHistory = Events.On('menu:toggle-focused-doing-history', () => {
-            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt && !shortcutsOpen && !quitRequestRef.current) {
                 requestWorkspaceAction({type: 'toggle-focused-doing-history'});
             }
         });
         const stopNewDoing = Events.On('menu:new-doing', () => {
-            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt && !shortcutsOpen && !quitRequestRef.current) {
                 setNewDoingRequest(request => request + 1);
             }
         });
         const stopFocusPane = Events.On('menu:focus-pane', event => {
             const position = Number(event.data);
-            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt && !shortcutsOpen && !quitRequestRef.current) {
                 if (position === 0) {
                     requestWorkspaceAction({type: 'focus-todo'});
                 } else {
@@ -212,12 +252,12 @@ export default function App() {
         });
         const stopMoveFocus = Events.On('menu:move-focus', event => {
             const delta = Number(event.data) as -1 | 1;
-            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt && !shortcutsOpen && !quitRequestRef.current) {
                 requestWorkspaceAction({type: 'move-focus', delta});
             }
         });
         const stopTogglePaneZoom = Events.On('menu:toggle-pane-zoom', () => {
-            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt && !shortcutsOpen && !quitRequestRef.current) {
                 requestWorkspaceAction({type: 'toggle-zoom'});
             }
         });
@@ -236,8 +276,18 @@ export default function App() {
         });
         const stopError = Events.On('menu:error', event => setError(String(event.data)));
         const stopClose = Events.On('window:close-request', requestWindowClose);
+        const stopPrepareQuit = Events.On('app:prepare-quit', event => prepareQuit(event.data as QuitRequest));
+        const stopCancelQuit = Events.On('app:cancel-quit', event => {
+            cancelledQuitToken.current = Math.max(cancelledQuitToken.current, Number(event.data));
+            if (quitRequestRef.current?.token !== Number(event.data)) return;
+            quitRequestRef.current = null;
+            setQuitRequest(null);
+            closeSaveRevision.current = 0;
+            setClosePrompt(null);
+        });
         return () => {
             stopOpen();
+            stopCommand();
             stopSave();
             stopToggleAllDoingHistory();
             stopToggleFocusedDoingHistory();
@@ -249,6 +299,8 @@ export default function App() {
             stopSettingsChanged();
             stopError();
             stopClose();
+            stopPrepareQuit();
+            stopCancelQuit();
         };
     });
 
@@ -266,7 +318,7 @@ export default function App() {
         const shortcut = (event: KeyboardEvent) => {
             if (event.key === 'Escape' && (closePrompt === 'confirm' || closePrompt === 'waiting')) {
                 event.preventDefault();
-                setClosePrompt(null);
+                cancelQuitOrClose();
                 return;
             }
             if (event.key === 'Escape' && dayPickerOpen) {
@@ -274,7 +326,7 @@ export default function App() {
                 setDayPickerOpen(false);
                 return;
             }
-            if (closePrompt) {
+            if (closePrompt || shortcutsOpen || quitRequestRef.current) {
                 return;
             }
             // Native menu accelerators own application commands in Wails.
@@ -337,7 +389,7 @@ export default function App() {
     };
 
     const discardAndClose = () => {
-        setDiscardRequest(current => current + 1);
+        if (!quitRequestRef.current) setDiscardRequest(current => current + 1);
         setClosePrompt(null);
         window.requestAnimationFrame(closeCurrentWindow);
     };
@@ -434,11 +486,31 @@ export default function App() {
                     discardRequest={discardRequest}
                     newDoingRequest={newDoingRequest}
                     workspaceActionRequest={workspaceActionRequest}
-                    interactionDisabled={dayPickerOpen || closePrompt !== null}
+                    interactionDisabled={dayPickerOpen || closePrompt !== null || shortcutsOpen || quitRequest !== null}
+                    onShowShortcuts={() => {
+                        // Capture before inert blurs the workspace in a browser.
+                        shortcutReturnFocus.current = document.activeElement as HTMLElement;
+                        setShortcutsOpen(true);
+                    }}
                     onError={message => setError(message)}
                     onSaveStateChange={handleWorkspaceSaveStateChange}
                     onSaveComplete={handleSaveComplete}
                 />
+            )}
+
+            {shortcutsOpen && <ShortcutReference
+                returnFocus={shortcutReturnFocus.current}
+                onDismiss={() => setShortcutsOpen(false)}
+            />}
+
+            {quitRequest && !closePrompt && (
+                <div className="close-prompt-backdrop">
+                    <section className="close-prompt" role="alertdialog" aria-modal="true" aria-label="Preparing to quit">
+                        <h2>{quitRequest.update ? 'Preparing to update…' : 'Preparing to quit…'}</h2>
+                        <p>Waiting for the other journal windows.</p>
+                        <button type="button" className="quiet-button" onClick={cancelQuitOrClose}>Cancel</button>
+                    </section>
+                </div>
             )}
 
             {closePrompt && (
@@ -453,13 +525,13 @@ export default function App() {
                         <h2 id="close-prompt-title">
                             {closePrompt === 'failed'
                                 ? 'Couldn’t save this window'
-                                : closePrompt === 'waiting' ? 'Finishing the current save…' : 'Save changes before closing?'}
+                                : closePrompt === 'waiting' ? 'Finishing the current save…' : quitRequest?.update ? 'Save changes before updating?' : quitRequest ? 'Save changes before quitting?' : 'Save changes before closing?'}
                         </h2>
                         <p id="close-prompt-description">
                             {closePrompt === 'failed'
                                 ? 'A save failed or a file changed outside Journalist Mode. The window is still open so you can resolve it without losing work.'
                                 : closePrompt === 'waiting'
-                                    ? 'The window will close when the current save succeeds. If it fails, your work will stay open.'
+                                    ? 'Waiting for this save to finish. Your work stays open if it fails.'
                                 : 'This journal window has unsaved changes.'}
                         </p>
                         <div className="close-prompt-actions">
@@ -468,11 +540,11 @@ export default function App() {
                                     <button type="button" className="danger-button" onClick={discardAndClose}>
                                         Discard Changes
                                     </button>
-                                    <button type="button" className="quiet-button" onClick={() => setClosePrompt(null)}>
+                                    <button type="button" className="quiet-button" onClick={cancelQuitOrClose}>
                                         Cancel
                                     </button>
                                     <button type="button" className="save-button" onClick={saveAndClose} autoFocus>
-                                        Save and Close
+                                        {quitRequest ? 'Save and Continue' : 'Save and Close'}
                                     </button>
                                 </>
                             )}
@@ -482,12 +554,12 @@ export default function App() {
                                 </button>
                             )}
                             {closePrompt === 'waiting' && (
-                                <button type="button" className="quiet-button" onClick={() => setClosePrompt(null)} autoFocus>
+                                <button type="button" className="quiet-button" onClick={cancelQuitOrClose} autoFocus>
                                     Cancel
                                 </button>
                             )}
                             {closePrompt === 'failed' && (
-                                <button type="button" className="save-button" onClick={() => setClosePrompt(null)} autoFocus>
+                                <button type="button" className="save-button" onClick={cancelQuitOrClose} autoFocus>
                                     Keep Editing
                                 </button>
                             )}

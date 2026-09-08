@@ -34,7 +34,9 @@ describe('workspaceActionForShortcut', () => {
     it('maps pane visibility and history shortcuts', () => {
         expect(command('b')).toEqual({type: 'focus-todo'});
         expect(command('h', {shiftKey: true})).toEqual({type: 'toggle-all-doing-history'});
-        expect(command('h', {altKey: true})).toEqual({type: 'toggle-focused-doing-history'});
+        expect(command('h', {altKey: true})).toBeNull();
+        expect(command('h', {metaKey: false, ctrlKey: true, altKey: true})).toEqual({type: 'toggle-focused-doing-history'});
+        expect(command('˙', {code: 'KeyH', metaKey: false, ctrlKey: true, altKey: true})).toEqual({type: 'toggle-focused-doing-history'});
     });
 
     it('zooms with Control-Option-Z, including an Option-transformed key', () => {

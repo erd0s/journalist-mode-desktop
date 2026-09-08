@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react';
-import {Settings} from '../api';
+import {appAPI, Settings} from '../api';
 import {Icon} from './Icons';
 
 type SettingsProps = {
@@ -22,6 +22,15 @@ export function SettingsView({
     const [storageRoot, setStorageRoot] = useState(settings.storageRoot);
     const [debugMode, setDebugMode] = useState(settings.debugMode);
     const [saving, setSaving] = useState(false);
+    const [version, setVersion] = useState('');
+    const [automaticChecks, setAutomaticChecks] = useState(false);
+    const [updateError, setUpdateError] = useState('');
+    useEffect(() => {
+        appAPI.getUpdateStatus().then(status => {
+            setVersion(status.version);
+            setAutomaticChecks(status.automaticChecks);
+        }).catch(reason => setUpdateError(String(reason)));
+    }, []);
 
     useEffect(() => setStorageRoot(settings.storageRoot), [settings.storageRoot]);
     useEffect(() => setDebugMode(settings.debugMode), [settings.debugMode]);
@@ -36,6 +45,7 @@ export function SettingsView({
     const save = async () => {
         setSaving(true);
         try {
+            await appAPI.setAutomaticUpdateChecks(automaticChecks);
             await onSave({...settings, storageRoot, debugMode});
         } finally {
             setSaving(false);
@@ -103,6 +113,21 @@ export function SettingsView({
                             Show logs
                         </button>
                     </div>
+                </div>
+
+                <div className="settings-card">
+                    <div className="setting-label">
+                        <span><strong>Updates</strong><small>{version ? `Running ${version}` : 'Reading version…'}</small></span>
+                        <button type="button" className="secondary-button" onClick={() => {
+                            void appAPI.checkForUpdates().catch(reason => setUpdateError(String(reason)));
+                        }}>Check for Updates…</button>
+                    </div>
+                    <label className="debug-toggle">
+                        <span>Check for updates automatically</span>
+                        <input type="checkbox" checked={automaticChecks} onChange={event => setAutomaticChecks(event.target.checked)}/>
+                    </label>
+                    <p className="setting-note">You choose when to download and install. Unsaved journals stay open until you save or discard them.</p>
+                    {updateError && <p role="alert">{updateError}</p>}
                 </div>
 
                 <div className="settings-actions">

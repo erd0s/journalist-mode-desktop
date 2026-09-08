@@ -25,9 +25,9 @@ JM/
     └── 2026-08-28_3.jm.md
 ```
 
-Creating a day creates the Todo file and the first Doing file without truncating files that already exist. Numbered Doing files represent parallel work streams. Each date opens in its own native window, with Todo on the left and Doing streams arranged to its right. Visible panes divide the available window width evenly. You can hide Todo when you only need the journal streams, or zoom the focused pane to fill the workspace without closing or reloading the other editors.
+Creating a day creates the Todo file and the first Doing file without truncating files that already exist. Numbered Doing files represent parallel work streams. Each date opens in its own native window, with Todo on the left and Doing streams arranged to its right. Visible panes divide the available window width evenly. Editor gutters keep a maximum of 20px above the content and 22px on either side, shrinking as each pane narrows. You can hide Todo when you only need the journal streams, or zoom the focused pane to fill the workspace without closing or reloading the other editors.
 
-The editors preserve the underlying Markdown. A complete Doing timestamp such as `(2026-08-28 21:47)` appears as the nearest half-hour clock face, while the exact timestamp remains in the file and appears on hover. Click the clock and press Backspace to remove the closing `)` and expose the raw timestamp; type `)` again to restore the clock. Todo dates use compact styling, and completed entries render with strikethrough while remaining editable text.
+The editors preserve the underlying Markdown. A complete Doing timestamp such as `(2026-08-28 21:47)` appears as the nearest half-hour clock face, while the exact timestamp remains in the file and appears on hover. Click the clock and press Backspace to remove the closing `)` and expose the raw timestamp; type `)` again to restore the clock. Todo dates use contrasting tags, and spacing separates visually wrapped tasks without adding blank lines to the file. Typed and pasted Todo tasks receive the current local date; headings, blank lines, dividers, completed entries and existing dates are preserved. Completed entries render with strikethrough while remaining editable text.
 
 Journalist Mode does not autosave. `Command-S` saves every pane in the current window. Clean files reload when another program changes them. If a file changes both inside and outside the app, Journalist Mode preserves both versions and asks which one to keep.
 
@@ -35,15 +35,19 @@ The app does not sort Todo entries or provide file synchronization.
 
 ## Keyboard controls
 
+Click the Command symbol at the upper-right of a day window for the shortcut reference. Hold either Command key for half a second to reveal pane hints; release it to dismiss them. The zoomed pane also shows how to unzoom.
+
 | Shortcut | Action |
 | --- | --- |
 | `Return` | Add the next Todo line or append a child to the active Doing chain |
-| `Return` in the day picker or on the welcome window | Open today, or start it when it does not exist yet |
+| `Up` / `Down` in the day picker | Select Today or a previous day |
+| `Return` in the day picker | Open the selected day, or start Today when it does not exist yet |
+| `Return` on the welcome window | Open today, or start it when it does not exist yet |
 | `Shift-Return` | Complete the selected Todo entry or deepest active Doing entry |
 | `Shift-Escape` | Cancel the selected Todo entry or deepest active Doing entry |
 | `Command-Shift-C` | Copy Todo text without its date or completion markers |
 | `Command-Shift-H` | Toggle completed history in every Doing pane; a mixed state hides all history |
-| `Command-Option-H` | Toggle completed history in the focused Doing pane |
+| `Control-Option-H` | Toggle completed history in the focused Doing pane |
 | `Command-S` | Save every pane in the current window |
 | `Command-O` or `Command-N` | Show the day picker in the current window |
 | `Command-T` | Create and focus the next numbered Doing stream |
@@ -53,7 +57,7 @@ The app does not sort Todo entries or provide file synchronization.
 | `Control-Option-Z` | Toggle the focused pane between its normal width and the full workspace |
 | `Command-,` | Open Settings |
 | `Command-W` | Close the current window, prompting if it has unsaved changes |
-| <kbd>Command</kbd>-<kbd>&#96;</kbd> | Cycle through open journal windows |
+| <kbd>Command</kbd>-<kbd>&#96;</kbd> / <kbd>Command-Shift</kbd>-<kbd>&#96;</kbd> | Cycle forward / backward through open journal windows in opening order, wrapping at either end |
 
 ## Install a release
 

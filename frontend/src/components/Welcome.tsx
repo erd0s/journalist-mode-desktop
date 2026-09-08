@@ -14,16 +14,17 @@ export function Welcome({days, onCreateToday, onOpenDay, embedded = false}: Welc
     const todaySummary = days.find(day => day.date === today);
     const previousDays = days.filter(day => day.date !== today);
     const todayButton = useRef<HTMLButtonElement>(null);
+    const contentRef = useRef<HTMLElement>(null);
     const primaryActionPending = useRef(false);
 
-    const runPrimaryAction = async () => {
+    const openDay = async (date: string) => {
         if (primaryActionPending.current) {
             return;
         }
         primaryActionPending.current = true;
         try {
-            if (todaySummary) {
-                await onOpenDay(today);
+            if (date !== today || todaySummary) {
+                await onOpenDay(date);
             } else {
                 await onCreateToday();
             }
@@ -34,10 +35,36 @@ export function Welcome({days, onCreateToday, onOpenDay, embedded = false}: Welc
             primaryActionPending.current = false;
         }
     };
+    const runPrimaryAction = () => openDay(today);
 
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
+            if ((event.key === 'ArrowDown' || event.key === 'ArrowUp')
+                && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+                if (!embedded && targetsAnotherControl(event.target, todayButton.current)
+                    && !contentRef.current?.contains(event.target as Node)) {
+                    return;
+                }
+                const buttons = [...(contentRef.current?.querySelectorAll<HTMLButtonElement>(
+                    '.today-action, .day-row',
+                ) ?? [])];
+                const index = Math.max(0, buttons.indexOf(document.activeElement as HTMLButtonElement));
+                const next = Math.max(0, Math.min(buttons.length - 1,
+                    index + (event.key === 'ArrowDown' ? 1 : -1)));
+                event.preventDefault();
+                event.stopPropagation();
+                buttons[next]?.focus({preventScroll: true});
+                buttons[next]?.scrollIntoView?.({block: 'nearest'});
+                return;
+            }
             if (event.key !== 'Enter' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
+                return;
+            }
+            const selectedDay = event.target instanceof Element
+                ? event.target.closest<HTMLButtonElement>('.day-row') : null;
+            if (selectedDay && contentRef.current?.contains(selectedDay)) {
+                event.preventDefault();
+                if (!event.repeat) void openDay(selectedDay.dataset.date!);
                 return;
             }
             if (targetsAnotherControl(event.target, todayButton.current)) {
@@ -60,11 +87,11 @@ export function Welcome({days, onCreateToday, onOpenDay, embedded = false}: Welc
     return (
         <main className={`welcome-shell${embedded ? ' welcome-embedded' : ''}`}>
             {!embedded && <div className="window-drag-region" aria-hidden="true"/>}
-            <section className="welcome-content">
+            <section className="welcome-content" ref={contentRef}>
                 <button
                     ref={todayButton}
                     className="today-action"
-                    autoFocus={embedded}
+                    autoFocus
                     onClick={runPrimaryAction}
                 >
                     <span className="today-icon"><Icon name="calendar"/></span>
@@ -86,7 +113,8 @@ export function Welcome({days, onCreateToday, onOpenDay, embedded = false}: Welc
                                 No previous journal days yet.
                             </div>
                         ) : previousDays.map(day => (
-                            <button className="day-row" key={day.date} onClick={() => onOpenDay(day.date)}>
+                            <button className="day-row" key={day.date} data-date={day.date}
+                                onClick={() => void openDay(day.date)}>
                                 <span className="day-date">
                                     <strong>{formatShortDate(day.date)}</strong>
                                     <small>{day.date}</small>

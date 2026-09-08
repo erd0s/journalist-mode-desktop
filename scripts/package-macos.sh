@@ -26,7 +26,9 @@ discover_developer_id() {
 
 sign_path() {
     local path="$1"
-    /usr/bin/codesign "${JM_SIGN_ARGS[@]}" "$path"
+    # Sparkle helpers carry their own entitlements; retain those when changing
+    # their signing identity, then seal the enclosing framework and app.
+    /usr/bin/codesign "${JM_SIGN_ARGS[@]}" --preserve-metadata=entitlements "$path"
 }
 
 require_command wails3
