@@ -304,6 +304,34 @@ export class Settings {
     }
 }
 
+/**
+ * UpdateStatus describes the running bundle, not a version from the website.
+ */
+export class UpdateStatus {
+    "version": string;
+    "automaticChecks": boolean;
+
+    /** Creates a new UpdateStatus instance. */
+    constructor($$source: Partial<UpdateStatus> = {}) {
+        if (!("version" in $$source)) {
+            this["version"] = "";
+        }
+        if (!("automaticChecks" in $$source)) {
+            this["automaticChecks"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new UpdateStatus instance from a string or object.
+     */
+    static createFrom($$source: any = {}): UpdateStatus {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new UpdateStatus($$parsedSource as Partial<UpdateStatus>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = JournalFile.createFrom;
 const $$createType1 = $Create.Array($$createType0);

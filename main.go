@@ -36,6 +36,8 @@ var singleInstanceKey = [32]byte{
 // shares one service and one file lock inside a single macOS application.
 type Desktop struct {
 	native        *application.App
+	service       *App
+	quit          quitGate
 	windowMu      sync.Mutex
 	closeMu       sync.Mutex
 	approvedClose map[uint]bool
@@ -50,6 +52,7 @@ func main() {
 	service := NewApp()
 	var desktop *Desktop
 	native := application.New(application.Options{
+		ShouldQuit:  func() bool { return desktop == nil || desktop.shouldQuit() },
 		Name:        applicationName,
 		Description: "A plain-text workspace for parallel streams of thought.",
 		Assets: application.AssetOptions{
@@ -79,6 +82,7 @@ func main() {
 
 	desktop = &Desktop{
 		native:        native,
+		service:       service,
 		approvedClose: make(map[uint]bool),
 	}
 	service.desktop = desktop
@@ -87,7 +91,22 @@ func main() {
 	native.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(*application.ApplicationEvent) {
 		desktop.Reopen()
 	})
-	desktop.OpenWelcomeWindow()
+	native.Event.OnApplicationEvent(events.Mac.ApplicationDidFinishLaunching, func(*application.ApplicationEvent) {
+		if err := startNativeUpdates(desktop); err != nil {
+			log.Printf("Updater unavailable: %v", err)
+		}
+	})
+	dates, restoreErr := service.takeRelaunchDays()
+	if restoreErr != nil {
+		log.Printf("Restore journals: %v", restoreErr)
+	}
+	if len(dates) == 0 {
+		desktop.OpenWelcomeWindow()
+	} else {
+		for _, date := range dates {
+			desktop.OpenDayWindow(date)
+		}
+	}
 
 	if err := native.Run(); err != nil {
 		log.Fatal(err)
@@ -144,9 +163,7 @@ func focusReopenWindow(windows []application.Window, current application.Window)
 func (d *Desktop) openWelcomeWindow() {
 
 	if existing, ok := d.native.Window.GetByName(welcomeWindow); ok {
-		existing.Show()
-		existing.Restore()
-		existing.Focus()
+		focusReopenWindow([]application.Window{existing}, existing)
 		return
 	}
 
@@ -170,9 +187,7 @@ func (d *Desktop) OpenSettingsWindow() string {
 	defer d.windowMu.Unlock()
 
 	if existing, ok := d.native.Window.GetByName(settingsWindow); ok {
-		existing.Show()
-		existing.Restore()
-		existing.Focus()
+		focusReopenWindow([]application.Window{existing}, existing)
 		return "focused"
 	}
 
@@ -197,10 +212,11 @@ func (d *Desktop) OpenDayWindow(date string) string {
 	defer d.windowMu.Unlock()
 
 	name := dayWindowName(date)
+	if d.quit.pending() {
+		return "quitting"
+	}
 	if existing, ok := d.native.Window.GetByName(name); ok {
-		existing.Show()
-		existing.Restore()
-		existing.Focus()
+		focusReopenWindow([]application.Window{existing}, existing)
 		return "focused"
 	}
 
@@ -259,6 +275,9 @@ func (d *Desktop) protectClose(window *application.WebviewWindow) {
 }
 
 func (d *Desktop) ConfirmClose(window application.Window) {
+	if d.quit.pending() {
+		return
+	}
 	d.closeMu.Lock()
 	d.approvedClose[window.ID()] = true
 	d.closeMu.Unlock()
@@ -321,6 +340,10 @@ func applicationMenu(native *application.App, service *App, desktop *Desktop) *a
 	result := native.NewMenu()
 	if runtime.GOOS == "darwin" {
 		result.AddRole(application.AppMenu)
+		appMenu := result.FindByLabel(applicationName)
+		if appMenu != nil {
+			appMenu.GetSubmenu().Add("Check for Updates…").OnClick(func(*application.Context) { service.CheckForUpdates() })
+		}
 	}
 
 	fileMenu := result.AddSubmenu("File")
@@ -352,7 +375,7 @@ func applicationMenu(native *application.App, service *App, desktop *Desktop) *a
 	viewMenu.Add("Toggle All Doing History").SetAccelerator("CmdOrCtrl+Shift+H").OnClick(func(*application.Context) {
 		emitToCurrent(native, "menu:toggle-all-doing-history")
 	})
-	viewMenu.Add("Toggle Focused Doing History").SetAccelerator("CmdOrCtrl+Option+H").OnClick(func(*application.Context) {
+	viewMenu.Add("Toggle Focused Doing History").SetAccelerator("Ctrl+Option+H").OnClick(func(*application.Context) {
 		emitToCurrent(native, "menu:toggle-focused-doing-history")
 	})
 	viewMenu.AddSeparator()
@@ -425,6 +448,7 @@ type journalWindow interface {
 func (d *Desktop) cycleDayWindow(delta int) {
 	d.windowMu.Lock()
 	defer d.windowMu.Unlock()
+	emitToCurrent(d.native, "menu:command-used")
 	var windows []journalWindow
 	for _, window := range d.native.Window.GetAll() {
 		windows = append(windows, window)
@@ -474,6 +498,9 @@ func emitToCurrent(native *application.App, name string, data ...any) {
 }
 
 func dispatchToWindow(window application.Window, name string, data ...any) {
+	if strings.HasPrefix(name, "menu:") && name != "menu:command-used" {
+		window.DispatchWailsEvent(&application.CustomEvent{Name: "menu:command-used", Sender: window.Name()})
+	}
 	event := &application.CustomEvent{Name: name, Sender: window.Name()}
 	if len(data) == 1 {
 		event.Data = data[0]

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Journalist Mode</title>
+    <link>https://github.com/erd0s/journalist-mode-desktop/releases</link>
+    <description>Stable macOS updates for Journalist Mode.</description>
+    <language>en</language>
+  </channel>
+</rss>

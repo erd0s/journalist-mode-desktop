@@ -14,6 +14,18 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+export function ApproveQuit(token: number): $CancellablePromise<void> {
+    return $Call.ByID(3763402377, token);
+}
+
+export function CancelQuit(token: number): $CancellablePromise<void> {
+    return $Call.ByID(2357974540, token);
+}
+
+export function CheckForUpdates(): $CancellablePromise<void> {
+    return $Call.ByID(2675659504);
+}
+
 /**
  * ChooseStorageDirectory opens the native folder picker.
  */
@@ -77,12 +89,18 @@ export function GetSettings(): $CancellablePromise<$models.Settings> {
     });
 }
 
+export function GetUpdateStatus(): $CancellablePromise<$models.UpdateStatus> {
+    return $Call.ByID(946602336).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
 /**
  * ListDays discovers dates represented by either Doing or Todo files.
  */
 export function ListDays(): $CancellablePromise<$models.DaySummary[]> {
     return $Call.ByID(2876593206).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
@@ -124,7 +142,7 @@ export function OpenSettingsWindow(): $CancellablePromise<string> {
  */
 export function ReadJournalFiles(paths: string[]): $CancellablePromise<$models.JournalFile[]> {
     return $Call.ByID(2433091695, paths).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType6($result);
     });
 }
 
@@ -144,7 +162,7 @@ export function RecordDebugEvents(events: $models.DebugEvent[]): $CancellablePro
  */
 export function SaveFile(path: string, content: string, expectedContent: string, force: boolean): $CancellablePromise<$models.SaveResult> {
     return $Call.ByID(1396636678, path, content, expectedContent, force).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType7($result);
     });
 }
 
@@ -155,6 +173,10 @@ export function SaveSettings(settings: $models.Settings): $CancellablePromise<$m
     return $Call.ByID(1949631069, settings).then(($result: any) => {
         return $$createType2($result);
     });
+}
+
+export function SetAutomaticUpdateChecks(enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1882595846, enabled);
 }
 
 /**
@@ -170,7 +192,8 @@ export function SetEditorFont(font: string): $CancellablePromise<$models.Setting
 const $$createType0 = $models.DayData.createFrom;
 const $$createType1 = $models.JournalFile.createFrom;
 const $$createType2 = $models.Settings.createFrom;
-const $$createType3 = $models.DaySummary.createFrom;
-const $$createType4 = $Create.Array($$createType3);
-const $$createType5 = $Create.Array($$createType1);
-const $$createType6 = $models.SaveResult.createFrom;
+const $$createType3 = $models.UpdateStatus.createFrom;
+const $$createType4 = $models.DaySummary.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = $Create.Array($$createType1);
+const $$createType7 = $models.SaveResult.createFrom;

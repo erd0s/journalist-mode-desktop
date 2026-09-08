@@ -1,0 +1,21 @@
+# Updating Journalist Mode
+
+Packaged macOS builds use Sparkle 2.9.6. The app checks daily in the background. Settings shows the version of the running executable, an automatic-check preference and **Check for Updates**. The application menu also has **Check for Updates**. Updates show their version and release notes before downloading; installation requires your choice. Choose Later to keep working.
+
+Before relaunching, each open journal must finish saving or receive a Save/Discard decision. Cancel returns every window to editing. A failed or conflicting save keeps the app open. A Discard decision does not erase that window's text while other windows are deciding. After installation, the new process reopens the previous journal days using the same journal folder. The updater replaces the bundle that is actually running.
+
+Versions before 0.7.0 need one manual upgrade: quit after saving your journals, download the signed ZIP from GitHub Releases, unpack it and replace your installed Journalist Mode app. Start that replacement once. Future updates happen inside the app. Keep one installed copy so Finder and the Dock point to the same app.
+
+## Maintainer release procedure
+
+1. Update `build/config.yml`, both `build/darwin/Info*.plist` files, `frontend/package.json` and `frontend/package-lock.json` to the same stable `x.y.z` version. It must exceed every version in `updates/appcast.xml`. The build embeds the production plist version into the executable.
+2. Run the frontend tests, `go test -race ./...`, `python3 -m unittest discover -s scripts -p 'test_*.py'`, then `JM_NOTARY_PROFILE=journalist-mode-notary bash scripts/package-macos.sh`. Packaging fetches Sparkle from its pinned release and verifies the archive SHA-256. It copies the framework, helpers and license, signs nested code while preserving helper entitlements, signs the application, then notarizes and staples it.
+3. Archive the finished app with `ditto -c -k --keepParent 'build/bin/Journalist Mode.app' 'build/bin/Journalist-Mode-VERSION-macos-arm64.zip'`. Do not modify the ZIP after signing it. Write plain-text release notes to a local file.
+4. Run `python3 scripts/prepare-update.py ARCHIVE NOTES --output NEW-STAGING-DIRECTORY`. This verifies the notarized bundle, release identity, public key, feed URL and version metadata, then generates and verifies a signed Sparkle enclosure with embedded notes. Sparkle infers the minimum OS and architecture from the bundle. The script does not publish anything.
+5. Create the stable GitHub release and upload the unchanged ZIP and SHA-256 checksum. Verify its download URL. Only then copy the staged `appcast.xml` to `updates/appcast.xml`, commit it and push to `main`. Publishing the feed makes that release discoverable. Keep older release assets available for installed versions with older OS requirements. Prereleases belong in a separate feed and must not enter this stable feed.
+
+The Ed25519 private key lives in the login Keychain under account `journalist-mode-updates`, managed by `build/sparkle/bin/generate_keys --account journalist-mode-updates`. Its public key is pinned in the production plist. Retain a secure backup of that signing key through your normal secret-management process; do not commit or print the private key. New releases need both this key and the Developer ID signing identity. The initial empty feed starts delivering updates when the first compatible release item is published.
+
+Sparkle verifies signed archives before extraction and handles interrupted downloads, installation permissions and replacement at the running bundle's location. Its standard UI supplies retry/error messages. Automatic downloads are disabled; the journal quit guard also covers ordinary Quit and Sparkle's install-on-quit path.
+
+The integration follows Sparkle's [programmatic setup](https://sparkle-project.org/documentation/programmatic-setup/), [relaunch delegate contract](https://sparkle-project.org/documentation/api-reference/Protocols/SPUUpdaterDelegate.html) and [publishing procedure](https://sparkle-project.org/documentation/publishing/). Native upgrade evidence belongs in `docs/testing/`; passing browser tests alone does not establish that replacement or relaunch works.

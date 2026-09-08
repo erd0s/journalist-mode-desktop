@@ -13,5 +13,6 @@ export {
     DebugFileSnapshot,
     JournalFile,
     SaveResult,
-    Settings
+    Settings,
+    UpdateStatus
 } from "./models.js";

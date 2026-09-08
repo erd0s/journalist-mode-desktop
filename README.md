@@ -47,7 +47,7 @@ Click the Command symbol at the upper-right of a day window for the shortcut ref
 | `Shift-Escape` | Cancel the selected Todo entry or deepest active Doing entry |
 | `Command-Shift-C` | Copy Todo text without its date or completion markers |
 | `Command-Shift-H` | Toggle completed history in every Doing pane; a mixed state hides all history |
-| `Command-Option-H` | Toggle completed history in the focused Doing pane |
+| `Control-Option-H` | Toggle completed history in the focused Doing pane |
 | `Command-S` | Save every pane in the current window |
 | `Command-O` or `Command-N` | Show the day picker in the current window |
 | `Command-T` | Create and focus the next numbered Doing stream |

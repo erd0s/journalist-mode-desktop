@@ -8,7 +8,7 @@ const groups = [
         ['⌃⌥Z', 'Zoom or unzoom the focused pane'],
         ['⌘T', 'Create and focus a new Doing stream'],
         ['⌘⇧H', 'Show or hide completed history in all Doing panes'],
-        ['⌘⌥H', 'Show or hide history in the focused Doing pane'],
+        ['⌃⌥H', 'Show or hide history in the focused Doing pane'],
     ]},
     {title: 'Editing', shortcuts: [
         ['Return', 'Add a Todo line or a child to the active Doing chain'],

@@ -39,15 +39,16 @@ export function workspaceActionForShortcut(shortcut: Shortcut): WorkspaceAction 
         && (shortcut.code === 'KeyZ' || key === 'z')) {
         return {type: 'toggle-zoom'};
     }
+    if (shortcut.ctrlKey && shortcut.altKey && !shortcut.metaKey && !shortcut.shiftKey
+        && (shortcut.code === 'KeyH' || key === 'h')) {
+        return {type: 'toggle-focused-doing-history'};
+    }
     if (shortcut.altKey && !shortcut.shiftKey) {
         if (key === 'arrowleft') {
             return {type: 'move-focus', delta: -1};
         }
         if (key === 'arrowright') {
             return {type: 'move-focus', delta: 1};
-        }
-        if (key === 'h') {
-            return {type: 'toggle-focused-doing-history'};
         }
         return null;
     }

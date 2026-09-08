@@ -170,3 +170,24 @@ it.each([false, true])('isolates and dismisses the reference without changing wo
         expect(document.activeElement).toBe(editor);
     }
 });
+
+
+it('clears hints when AppKit consumes a native menu shortcut before webview keydown', async () => {
+    await workspace();
+    await hold();
+    expect(hints()).not.toEqual([]);
+    await act(async () => window.dispatchEvent(new Event('journalist:native-command')));
+    await act(async () => vi.advanceTimersByTime(700));
+    expect(hints()).toEqual([]);
+    await key('keyup', {key: 'Meta', code: 'MetaLeft'});
+    await hold();
+    expect(hints()).not.toEqual([]);
+});
+
+
+it('does not suppress the next hold after a mouse menu action or late native event', async () => {
+    await workspace();
+    await act(async () => window.dispatchEvent(new Event('journalist:native-command')));
+    await hold();
+    expect(hints()).not.toEqual([]);
+});

@@ -2,6 +2,8 @@ version: '3'
 
 vars:
   APP_NAME: "Journalist Mode"
+  APP_VERSION:
+    sh: /usr/libexec/PlistBuddy -c Print:CFBundleShortVersionString build/darwin/Info.plist
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
 
 tasks:
@@ -63,7 +65,7 @@ tasks:
       - mkdir -p build/bin
       - go build {{.BUILD_FLAGS}} -o "build/bin/{{.APP_NAME}}"
     vars:
-      BUILD_FLAGS: '{{if eq .DEV "true"}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production -trimpath -buildvcs=false -ldflags="-w -s"{{end}}'
+      BUILD_FLAGS: '{{if eq .DEV "true"}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production -trimpath -buildvcs=false -ldflags="-w -s -X main.buildVersion={{.APP_VERSION}}"{{end}}'
     env:
       GOOS: darwin
       CGO_ENABLED: 1
@@ -76,11 +78,15 @@ tasks:
     deps:
       - build
     cmds:
+      - bash scripts/fetch-sparkle.sh
       - rm -rf "build/bin/{{.APP_NAME}}.app"
       - mkdir -p "build/bin/{{.APP_NAME}}.app/Contents/MacOS" "build/bin/{{.APP_NAME}}.app/Contents/Resources"
       - cp "build/bin/{{.APP_NAME}}" "build/bin/{{.APP_NAME}}.app/Contents/MacOS/{{.APP_NAME}}"
       - cp build/darwin/Info.plist "build/bin/{{.APP_NAME}}.app/Contents/Info.plist"
       - cp build/darwin/icons.icns "build/bin/{{.APP_NAME}}.app/Contents/Resources/icons.icns"
+      - mkdir -p "build/bin/{{.APP_NAME}}.app/Contents/Frameworks"
+      - ditto build/sparkle/Sparkle.framework "build/bin/{{.APP_NAME}}.app/Contents/Frameworks/Sparkle.framework"
+      - cp build/sparkle/LICENSE "build/bin/{{.APP_NAME}}.app/Contents/Resources/Sparkle-LICENSE"
 
   frontend:dev:
     summary: Runs Vite for Wails development mode

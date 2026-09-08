@@ -44,12 +44,26 @@ export function useCommandHints(enabled: boolean): boolean {
                 reset();
             }
         };
+        // AppKit can consume menu accelerators before the webview receives a
+        // keydown. Treat the native command as use of the held modifier too.
+        const commandUsed = () => {
+            usedShortcut = held.size > 0;
+            hide();
+        };
+        window.addEventListener('journalist:native-command', commandUsed);
+        window.addEventListener('copy', commandUsed);
+        window.addEventListener('cut', commandUsed);
+        window.addEventListener('paste', commandUsed);
         window.addEventListener('keydown', down, true);
         window.addEventListener('keyup', up, true);
         window.addEventListener('blur', reset);
         document.addEventListener('visibilitychange', reset);
         return () => {
             reset();
+            window.removeEventListener('journalist:native-command', commandUsed);
+            window.removeEventListener('copy', commandUsed);
+            window.removeEventListener('cut', commandUsed);
+            window.removeEventListener('paste', commandUsed);
             window.removeEventListener('keydown', down, true);
             window.removeEventListener('keyup', up, true);
             window.removeEventListener('blur', reset);

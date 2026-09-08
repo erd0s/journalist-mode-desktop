@@ -106,6 +106,9 @@ func (a *App) OpenDayWindow(date string) (string, error) {
 	if a.desktop == nil {
 		return "", errors.New("window manager is not available")
 	}
+	if a.desktop.quit.pending() {
+		return "", errors.New("finish or cancel quitting before opening a journal")
+	}
 	return a.desktop.OpenDayWindow(date), nil
 }
 

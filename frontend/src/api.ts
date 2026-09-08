@@ -1,4 +1,9 @@
 import {
+    ApproveQuit as nativeApproveQuit,
+    CancelQuit as nativeCancelQuit,
+    GetUpdateStatus as nativeGetUpdateStatus,
+    SetAutomaticUpdateChecks as nativeSetAutomaticUpdateChecks,
+    CheckForUpdates as nativeCheckForUpdates,
     ChooseStorageDirectory as nativeChooseStorageDirectory,
     ConfirmWindowClose as nativeConfirmWindowClose,
     CreateDoingStream as nativeCreateDoingStream,
@@ -91,6 +96,22 @@ const mockDays = [
 
 export const appAPI = {
     isNative,
+
+    async approveQuit(token: number): Promise<void> {
+        if (isNative()) await nativeApproveQuit(token);
+    },
+    async cancelQuit(token: number): Promise<void> {
+        if (isNative()) await nativeCancelQuit(token);
+    },
+    async getUpdateStatus(): Promise<main.UpdateStatus> {
+        return isNative() ? nativeGetUpdateStatus() : new main.UpdateStatus({version: 'Browser preview', automaticChecks: false});
+    },
+    async setAutomaticUpdateChecks(enabled: boolean): Promise<void> {
+        if (isNative()) await nativeSetAutomaticUpdateChecks(enabled);
+    },
+    async checkForUpdates(): Promise<void> {
+        if (isNative()) await nativeCheckForUpdates();
+    },
 
     isSettingsWindow(): boolean {
         return new URLSearchParams(window.location.search).get('settings') === '1';
