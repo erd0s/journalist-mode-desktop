@@ -488,10 +488,11 @@ export function DayWorkspace({
                 return;
             }
             const action = workspaceActionForShortcut(event);
-            // A focused WKWebView editor can receive Control-Option-Z before
-            // the native menu. Consume it here when delivered to the webview.
+            // A focused WKWebView editor can receive Control-Option shortcuts
+            // before the native menu. Consume them when delivered here.
             // Other native shortcuts remain owned by menu accelerators.
-            if (!action || (appAPI.isNative() && action.type !== 'toggle-zoom')) {
+            if (!action || (appAPI.isNative() && action.type !== 'toggle-zoom'
+                && action.type !== 'toggle-focused-doing-history')) {
                 return;
             }
             if (handleWorkspaceAction(action)) {

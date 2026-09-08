@@ -8,6 +8,7 @@ void jm_start_command_monitor(void);
 import "C"
 
 import (
+	"strconv"
 	"sync/atomic"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -40,11 +41,23 @@ func startNativeCommandHints(d *Desktop) {
 			if state == nil {
 				continue
 			}
+			window := d.native.Window.Current()
+			windowName := ""
+			if window != nil {
+				windowName = window.Name()
+			}
+			// Modifier state is useful when a menu consumes the key before
+			// WebKit can record it. The existing opt-in recorder controls this.
+			_ = d.service.RecordDebugEvents([]DebugEvent{{
+				Window: windowName, Category: "keyboard", Action: "native_command_state",
+				Sequence: state.Sequence,
+				Details:  map[string]string{"held": strconv.FormatBool(state.Held), "used": strconv.FormatBool(state.Used)},
+			}})
 			if !state.Held {
 				for _, window := range d.native.Window.GetAll() {
 					dispatchToWindow(window, "keyboard:command-state", state)
 				}
-			} else if window := d.native.Window.Current(); window != nil {
+			} else if window != nil {
 				dispatchToWindow(window, "keyboard:command-state", state)
 			}
 		}

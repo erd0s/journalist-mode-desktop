@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import {act} from 'react';
+import {EditorView} from '@codemirror/view';
 import {createRoot, Root} from 'react-dom/client';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {appAPI, DayData} from '../api';
@@ -30,7 +31,7 @@ class ResizeObserverStub {
     disconnect() {}
 }
 
-describe('focused editor zoom shortcut', () => {
+describe('focused editor Control-Option shortcuts', () => {
     let host: HTMLDivElement;
     let root: Root;
 
@@ -86,6 +87,33 @@ describe('focused editor zoom shortcut', () => {
                 expect(pane.hidden).toBe(false);
                 expect(editor.textContent).toBe(content);
             }
+        }
+    });
+
+    it('handles the focused-history shortcut delivered by WKWebView without inserting its Option character', async () => {
+        vi.spyOn(appAPI, 'isNative').mockReturnValue(true);
+        const historyDay = {...day, doing: [{...day.doing[0], content:
+            '(2026-09-05 18:00) Current\n~~(2026-09-05 17:00) Completed history (2026-09-05 17:30)~~'}]};
+        vi.spyOn(appAPI, 'readJournalFiles').mockResolvedValue([historyDay.todo, ...historyDay.doing]);
+        await act(async () => root.render(
+            <DayWorkspace day={historyDay} debugMode={false} saveRequest={0} discardRequest={0}
+                newDoingRequest={0} workspaceActionRequest={{action: {type: 'focus-todo'}, revision: 0}}
+                interactionDisabled={false} onError={vi.fn()} onSaveStateChange={vi.fn()}
+                onSaveComplete={vi.fn()} />,
+        ));
+        const editor = host.querySelectorAll<HTMLElement>('.cm-content')[1];
+        await act(async () => editor.focus());
+        const view = EditorView.findFromDOM(editor)!;
+        const content = view.state.doc.toString();
+        expect(editor.querySelector('.cm-completed-hidden')).not.toBeNull();
+        for (const visible of [true, false]) {
+            const event = new KeyboardEvent('keydown', {
+                key: '˙', code: 'KeyH', ctrlKey: true, altKey: true, bubbles: true, cancelable: true,
+            });
+            await act(async () => { editor.dispatchEvent(event); });
+            expect(event.defaultPrevented).toBe(true);
+            expect(editor.querySelector('.cm-completed-hidden') === null).toBe(visible);
+            expect(view.state.doc.toString()).toBe(content);
         }
     });
 });
