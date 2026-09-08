@@ -91,6 +91,32 @@ it('keeps multiline Doing paste unchanged', async () => {
     expect(view.state.doc.toString()).toBe('one\ntwo');
 });
 
+it('omits a pasted Done divider when the existing boundary survives, in the same undo step', async () => {
+    const initial = '\n---\n~~existing done task~~';
+    const {view} = await mount(initial);
+    await paste(view, 'new task\n---\n~~pasted done task~~');
+    const expected = '[2026-09-08] new task\n\n~~pasted done task~~\n---\n~~existing done task~~';
+    expect(view.state.doc.toString()).toBe(expected);
+    await act(async () => { undo(view); });
+    expect(view.state.doc.toString()).toBe(initial);
+    await act(async () => { redo(view); });
+    expect(view.state.doc.toString()).toBe(expected);
+});
+
+it('keeps a pasted Done divider when replacing the old document including its boundary', async () => {
+    const {view} = await mount('old task\n---\n~~old done task~~');
+    await act(async () => view.dispatch({selection: {anchor: 0, head: view.state.doc.length}}));
+    await paste(view, 'new task\n---\n~~new done task~~');
+    expect(view.state.doc.toString()).toBe('[2026-09-08] new task\n---\n~~new done task~~');
+});
+
+it('leaves the original blank line when a duplicate divider alone is pasted', async () => {
+    const initial = '\n---\n~~existing done task~~';
+    const {view} = await mount(initial);
+    await paste(view, '---');
+    expect(view.state.doc.toString()).toBe(initial);
+});
+
 it('leaves a pre-existing undated line unchanged except for the intended insertion', async () => {
     const {view} = await mount('before after');
     await act(async () => view.dispatch({selection: {anchor: 7}}));

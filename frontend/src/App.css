@@ -914,10 +914,15 @@
     border-bottom: 1px solid var(--line-soft);
 }
 
-.welcome-embedded .today-action:focus-visible,
-.welcome-embedded .day-row:focus-visible {
+.today-action:focus-visible {
     outline: 2px solid var(--accent-dark);
     outline-offset: -2px;
+}
+
+.day-row:focus {
+    outline: none;
+    color: var(--accent-dark);
+    background: #a9443810;
 }
 
 .file-editor .cm-todo-category {

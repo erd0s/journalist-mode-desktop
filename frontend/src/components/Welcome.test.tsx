@@ -148,7 +148,7 @@ describe('Welcome', () => {
         });
     });
 
-    describe('modal arrow navigation', () => {
+    describe.each([false, true])('arrow navigation (embedded=%s)', embedded => {
         async function key(key: string, target: EventTarget = document.activeElement!) {
             const event = new KeyboardEvent('keydown', {key, bubbles: true, cancelable: true});
             await act(async () => { target.dispatchEvent(event); });
@@ -156,7 +156,7 @@ describe('Welcome', () => {
         }
 
         it('starts on Today and moves one row at a time in both directions, stopping at the ends', async () => {
-            await render({embedded: true, days: [...daysWithToday,
+            await render({embedded, days: [...daysWithToday,
                 {date: '2026-09-01', doingCount: 1, hasTodo: true} as DaySummary]});
             const buttons = [...host.querySelectorAll<HTMLButtonElement>('.today-action, .day-row')];
             expect(document.activeElement).toBe(buttons[0]);
@@ -173,13 +173,11 @@ describe('Welcome', () => {
         });
 
         it('opens the selected previous day with Return and can navigate back to Today', async () => {
-            const {onOpenDay} = await render({embedded: true});
+            const {onOpenDay} = await render({embedded});
             await key('ArrowDown');
-            const selected = document.activeElement as HTMLButtonElement;
-            expect(selected.classList.contains('day-row')).toBe(true);
+            expect(document.activeElement?.classList.contains('day-row')).toBe(true);
             const enter = await key('Enter');
-            // jsdom lacks the browser's default Return-to-click behavior.
-            if (!enter.defaultPrevented) await act(async () => selected.click());
+            expect(enter.defaultPrevented).toBe(true);
             expect(onOpenDay).toHaveBeenCalledExactlyOnceWith(PREVIOUS);
             await key('ArrowUp');
             await key('Enter');
@@ -187,20 +185,21 @@ describe('Welcome', () => {
         });
 
         it('starts a missing Today after navigating back to it', async () => {
-            const {onCreateToday} = await render({embedded: true, days: daysWithoutToday});
+            const {onCreateToday} = await render({embedded, days: daysWithoutToday});
             await key('ArrowDown');
             await key('ArrowUp');
             await key('Enter');
             expect(onCreateToday).toHaveBeenCalledOnce();
         });
 
-        it('does not navigate outside the modal picker', async () => {
-            await render();
-            expect((await key('ArrowDown', document.body)).defaultPrevented).toBe(false);
+        it('claims arrows from the document when the picker is shown', async () => {
+            await render({embedded});
+            expect((await key('ArrowDown', document.body)).defaultPrevented).toBe(true);
+            expect(document.activeElement).toBe(host.querySelector('.day-row'));
         });
 
-        it('captures arrows before an editor behind the modal can act on them', async () => {
-            await render({embedded: true});
+        it('captures arrows before the picker background can act on them', async () => {
+            await render({embedded});
             const editor = document.createElement('div');
             document.body.appendChild(editor);
             const editorKey = vi.fn();
@@ -246,15 +245,12 @@ describe('Welcome', () => {
             expect(onOpenDay).toHaveBeenCalledExactlyOnceWith(TODAY);
         });
 
-        it('leaves Return to a focused previous-day row', async () => {
+        it('explicitly activates a focused previous-day row on Return', async () => {
             const {onOpenDay, onCreateToday} = await render();
             const row = host.querySelector<HTMLButtonElement>('.day-row')!;
             row.focus();
             const event = await pressReturn(row);
-            expect(event.defaultPrevented).toBe(false);
-            // jsdom does not activate buttons on Return; a browser would, so
-            // replay that default and check the row, not today, is what opens.
-            await act(async () => row.click());
+            expect(event.defaultPrevented).toBe(true);
             expect(onOpenDay).toHaveBeenCalledExactlyOnceWith(PREVIOUS);
             expect(onCreateToday).not.toHaveBeenCalled();
         });

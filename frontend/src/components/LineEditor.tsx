@@ -211,6 +211,20 @@ function todoPasteDates(): Extension {
         if (!transaction.docChanged || !transaction.isUserEvent('input.paste')) {
             return transaction;
         }
+        // A Todo file has one Done boundary. Keep an existing boundary when
+        // pasting another block, without moving any pasted or existing tasks.
+        // A boundary replaced by the selection does not count as surviving.
+        const survivingDividers = new Set<number>();
+        for (let number = 1; number <= transaction.startState.doc.lines; number += 1) {
+            const line = transaction.startState.doc.line(number);
+            if (line.text.trim() !== '---') continue;
+            const from = transaction.changes.mapPos(line.from, 1);
+            const to = transaction.changes.mapPos(line.to, -1);
+            if (to - from === line.length && transaction.newDoc.sliceString(from, to) === line.text
+                && transaction.newDoc.lineAt(from).text.trim() === '---') {
+                survivingDividers.add(transaction.newDoc.lineAt(from).number);
+            }
+        }
         const affected = new Set<number>();
         transaction.changes.iterChanges((fromA, toA, fromB, toB) => {
             const original = transaction.startState.doc.lineAt(fromA);
@@ -233,6 +247,9 @@ function todoPasteDates(): Extension {
         const now = new Date();
         const changes = [...affected].sort((a, b) => a - b).flatMap(number => {
             const line = transaction.newDoc.line(number);
+            if (line.text.trim() === '---' && survivingDividers.size && !survivingDividers.has(number)) {
+                return [{from: line.from, to: line.to, insert: ''}];
+            }
             const dated = ensureTodoDate(line.text, now);
             if (dated === line.text) {
                 return [];

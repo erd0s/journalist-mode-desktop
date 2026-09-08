@@ -417,7 +417,8 @@ type journalWindow interface {
 	ID() uint
 	Name() string
 	Show() application.Window
-	Restore()
+	IsMinimised() bool
+	UnMinimise()
 	Focus()
 }
 
@@ -459,8 +460,10 @@ func cycleJournalWindow(windows []journalWindow, currentID uint, delta int) {
 		}
 	}
 	target := days[next]
+	if target.IsMinimised() {
+		target.UnMinimise()
+	}
 	target.Show()
-	target.Restore()
 	target.Focus()
 }
 

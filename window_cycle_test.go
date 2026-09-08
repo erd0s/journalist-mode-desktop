@@ -7,10 +7,11 @@ import (
 )
 
 type testJournalWindow struct {
-	id      uint
-	name    string
-	actions *[]string
-	focused *uint
+	id        uint
+	name      string
+	actions   *[]string
+	focused   *uint
+	minimised bool
 }
 
 func (w *testJournalWindow) ID() uint     { return w.id }
@@ -19,18 +20,22 @@ func (w *testJournalWindow) Show() application.Window {
 	*w.actions = append(*w.actions, "show")
 	return nil
 }
-func (w *testJournalWindow) Restore() { *w.actions = append(*w.actions, "restore") }
-func (w *testJournalWindow) Focus()   { *w.actions = append(*w.actions, "focus"); *w.focused = w.id }
+func (w *testJournalWindow) IsMinimised() bool { return w.minimised }
+func (w *testJournalWindow) UnMinimise() {
+	*w.actions = append(*w.actions, "unminimise")
+	w.minimised = false
+}
+func (w *testJournalWindow) Focus() { *w.actions = append(*w.actions, "focus"); *w.focused = w.id }
 
 func TestJournalWindowCycle(t *testing.T) {
 	var actions []string
 	var focused uint = 2
 	windows := []journalWindow{
-		&testJournalWindow{8, "day-third", &actions, &focused},
-		&testJournalWindow{1, "welcome", &actions, &focused},
-		&testJournalWindow{2, "day-first", &actions, &focused},
-		&testJournalWindow{4, "settings", &actions, &focused},
-		&testJournalWindow{5, "day-second", &actions, &focused},
+		&testJournalWindow{8, "day-third", &actions, &focused, false},
+		&testJournalWindow{1, "welcome", &actions, &focused, false},
+		&testJournalWindow{2, "day-first", &actions, &focused, false},
+		&testJournalWindow{4, "settings", &actions, &focused, false},
+		&testJournalWindow{5, "day-second", &actions, &focused, false},
 	}
 	for _, delta := range []int{1, -1} {
 		focused = 2
@@ -44,7 +49,7 @@ func TestJournalWindowCycle(t *testing.T) {
 			if focused != id {
 				t.Fatalf("delta %d: focused %d, want %d", delta, focused, id)
 			}
-			if !reflect.DeepEqual(actions, []string{"show", "restore", "focus"}) {
+			if !reflect.DeepEqual(actions, []string{"show", "focus"}) {
 				t.Fatalf("must focus exactly one target: %v", actions)
 			}
 		}
@@ -83,5 +88,15 @@ func TestWindowCycleMenuAccelerators(t *testing.T) {
 		if !reflect.DeepEqual(item.GetAccelerator(), expected) {
 			t.Fatalf("wrong shortcut for %s", spec.label)
 		}
+	}
+}
+
+func TestJournalWindowCycleUnminimisesTarget(t *testing.T) {
+	var actions []string
+	var focused uint = 2
+	target := &testJournalWindow{5, "day-second", &actions, &focused, true}
+	cycleJournalWindow([]journalWindow{target}, 2, 1)
+	if focused != 5 || target.minimised || !reflect.DeepEqual(actions, []string{"unminimise", "show", "focus"}) {
+		t.Fatalf("minimised target was not restored once before focus: %v", actions)
 	}
 }
