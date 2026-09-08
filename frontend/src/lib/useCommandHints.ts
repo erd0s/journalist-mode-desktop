@@ -4,18 +4,25 @@ import {appAPI} from '../api';
 
 export const commandHintDelay = 500;
 
-export function useCommandHints(enabled: boolean): boolean {
+export function useCommandHints(enabled: boolean, debugMode = false): boolean {
     const [visible, setVisible] = useState(false);
     useEffect(() => {
         const held = new Set<string>();
         let timer: number | undefined;
         let usedShortcut = false;
+        const trace = (action: string, details: Record<string, string> = {}) => {
+            if (!debugMode) return;
+            void appAPI.recordDebugEvents([{clientTimestamp: new Date().toISOString(), sequence: 0,
+                window: '', category: 'keyboard-hints', action, details, files: []}]).catch(() => undefined);
+        };
         const hide = () => {
+            trace('hide');
             window.clearTimeout(timer);
             timer = undefined;
             setVisible(false);
         };
         const reset = () => {
+            trace('reset');
             hide();
             held.clear();
             usedShortcut = false;
@@ -49,6 +56,7 @@ export function useCommandHints(enabled: boolean): boolean {
         // AppKit can consume menu accelerators before the webview receives a
         // keydown. Treat the native command as use of the held modifier too.
         const commandUsed = () => {
+            trace('command_used');
             usedShortcut = held.size > 0;
             hide();
         };
@@ -56,6 +64,7 @@ export function useCommandHints(enabled: boolean): boolean {
         const native = appAPI.isNative();
         const stopNative = native ? Events.On('keyboard:command-state', event => {
             const state = event.data as {held: boolean; used: boolean; sequence: number};
+            trace('native_state', {state: JSON.stringify(state), lastSequence: String(lastSequence)});
             if (state.sequence <= lastSequence) return;
             lastSequence = state.sequence;
             if (!state.held) {
@@ -68,7 +77,7 @@ export function useCommandHints(enabled: boolean): boolean {
                 usedShortcut = true;
                 hide();
             } else if (!wasHeld && !usedShortcut) {
-                timer = window.setTimeout(() => setVisible(true), commandHintDelay);
+                timer = window.setTimeout(() => { trace('show'); setVisible(true); }, commandHintDelay);
             }
         }) : undefined;
         window.addEventListener('journalist:native-command', commandUsed);
@@ -93,6 +102,6 @@ export function useCommandHints(enabled: boolean): boolean {
             window.removeEventListener('blur', reset);
             document.removeEventListener('visibilitychange', reset);
         };
-    }, [enabled]);
+    }, [enabled, debugMode]);
     return enabled && visible;
 }

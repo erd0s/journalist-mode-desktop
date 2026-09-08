@@ -62,7 +62,7 @@ export function DayWorkspace({
     onSaveStateChange,
     onSaveComplete,
 }: DayWorkspaceProps) {
-    const showHints = useCommandHints(!interactionDisabled);
+    const showHints = useCommandHints(!interactionDisabled, debugMode);
     const [doingFiles, setDoingFiles] = useState<JournalFile[]>(day.doing);
     const files = useMemo(() => [day.todo, ...doingFiles], [day.todo, doingFiles]);
     const paths = useMemo(() => files.map(file => file.path), [files]);

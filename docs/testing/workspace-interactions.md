@@ -1,116 +1,50 @@
-# Workspace interaction test
+# Workspace and updater validation
 
-Run this checklist on macOS using the PR build. Allow about 20 minutes. These checks cover #14, #15, #16 and #18-#22; the updater (#17) is outside this PR. A browser preview cannot establish whether native window cycling works.
+The combined fixes for #14-#22 were exercised on Dirk's Mac on 8 September 2026. The earlier reopen fix (#24 / PR #25) remains included. Full signed, notarized packages were prepared before each foreground test batch. Speech announced every keyboard/mouse handover and release.
 
-## Prepare a scratch journal
+## Results
 
-1. Save any real journal work, close its windows, and quit the installed app. Keep a note of your current journal folder and debug setting so you can restore them afterward. The installed app and a source build share settings and single-instance handling, so only run the PR build during this test.
-2. From the PR checkout, run the following in Terminal. It creates disposable files, including enough previous days to exercise scrolling and Doing stream numbers with deliberate gaps. Keep this terminal open for the file checks later.
+| Issues | Result and evidence |
+| --- | --- |
+| #14 | Native standalone Welcome and modal picker both navigated with arrows and opened the selected previous day with Return. Selection uses the requested subtle red fill. |
+| #15-#16 | Native paste added today's date to single and multiple new Todo tasks, preserved exemptions, kept one existing Done boundary, and supported one-step undo/redo. Whole-document replacement and exact saved-file contents passed. Doing paste remained independent. |
+| #19, #22 | Native wide/narrow layouts, pane zoom/unzoom, Todo hide/reveal and history toggling passed. File hashes stayed unchanged during presentation changes. Date badges and wrapped-task separators were visually checked. |
+| #18 | The reference opened and dismissed with Escape and Command-W. Native editing commands were blocked while it was open. Focus returns to the opener; its help text may remain selectable, as Dirk requested. Debug controls appeared only with debug mode enabled, and the checkpoint button worked. |
+| #20 | Holding Command displayed the expected pane hints in the running app; release cleared them. Native and frontend traces showed the 500 ms reveal and the state transitions for either Command key. Mounted tests additionally cover simultaneous keys, quick shortcuts, stream-number gaps, modal suppression, blur and stale events. |
+| #21 | Three native journal windows cycled and wrapped in both directions, excluding Settings. Cycling away from and back to a full-screen journal preserved full screen. Reopening preserved the process/window count and full-screen state. |
+| #17 | A signed 0.7.0 test app installed a signed, notarized 0.7.1 app at the same location. The new PID, changed executable hash, running version, saved contents and three restored journals independently confirmed replacement and relaunch. Cancellation preserved all unsaved edits, including after another window had approved discarding. |
 
-   ```sh
-   JM_REVIEW_ROOT="$(mktemp -d /tmp/jm-workspace-review.XXXXXX)"
-   export JM_REVIEW_ROOT
-   python3 - <<'PY'
-   import os
-   from pathlib import Path
-   root = Path(os.environ['JM_REVIEW_ROOT'])
-   (root / 'Todo').mkdir()
-   (root / 'Doing').mkdir()
-   for number in range(1, 21):
-       date = f'2000-01-{number:02d}'
-       (root / 'Todo' / f'{date}.jmtodo.md').write_text(
-           '# Work\n'
-           '[2000-01-01] A long task that wraps across several display lines when the pane becomes narrow, with enough detail to make its boundary matter\n'
-           '    [2000-01-02] An indented child task that also wraps onto multiple display lines\n'
-           '[2000-01-03] The next separate task should remain easy to distinguish\n'
-           '---\n'
-           '~~[2000-01-04] A completed task~~\n')
-       for stream in ([1, 3, 9, 10] if number == 20 else [1]):
-           suffix = '' if stream == 1 else f'_{stream}'
-           (root / 'Doing' / f'{date}{suffix}.jm.md').write_text(
-               '(2000-01-20 10:00) A Doing chain\n'
-               '\t(2000-01-20 10:15) A child entry\n')
-   print(root)
-   PY
-   wails3 task package
-   open "build/bin/Journalist Mode.app"
-   ```
+The focused-history shortcut uses **Control-Option-H**. Command-Option-H belongs to macOS Hide Others. Native testing also found that a focused WKWebView may receive the Control-Option shortcut before the menu, so the editor handles and consumes it when delivered there. Toggling history was then verified without changing the document.
 
-3. Open Settings with Command-comma. Select the printed scratch folder and save. Open **20 January 2000** from the welcome screen. Confirm you see Todo and Doing streams 1, 3, 9 and 10.
+## Update failure and cancellation checks
 
-## Day picker: selection and activation (#14)
+- Empty feeds, older versions and beta-only feeds reported no applicable update.
+- An incompatible minimum macOS version was refused.
+- An unavailable server and malformed XML produced recoverable errors.
+- Invalid signatures, missing signatures and interrupted downloads were rejected; the installed executable remained unchanged.
+- Remind Me Later returned to editing.
+- Cancel during Save/Discard kept both dirty journals open and unchanged.
+- Discard in one journal followed by Cancel in another preserved both journals' unsaved text.
+- Save and Continue in both dirty journals installed the update and reopened all three journal days with the saved text.
 
-- [ ] Press Command-O. **Start today** has visible focus. Press Down once: the first previous day is selected. Continue Down: focus moves one row at a time and the list scrolls to keep it visible. At the bottom, another Down stays there.
-- [ ] Press Up repeatedly. Focus returns through the same rows to Today. Another Up stays on Today. Press Return: today's new window opens. Close that window, return to the fixture day, and reopen the picker. It now says **Open today**; Return opens the existing Today window. Close Today again.
-- [ ] In the fixture window, open the picker, press Down twice, then Return. **19 January 2000** opens, rather than Today or 20 January. Return to the 20 January window.
-- [ ] Open the picker with Command-N. Press Escape to dismiss it. Reopen it, navigate with Tab to a day row, and press Return: that row opens. While the picker is open, arrows must not move the caret or scroll an editor behind it. Once dismissed, arrows work normally in the editor.
+The upgrade used a localhost appcast and disposable signed app bundles. The production bundle retains the GitHub-hosted feed URL and pinned public key. The test did not publish a GitHub release. Versions before 0.7.0 require one manual upgrade; subsequent releases use the procedure in [Updating Journalist Mode](../updating.md).
 
-## Todo paste and undo (#15, #16)
+## Automated coverage and inspection limits
 
-- [ ] In Todo, place the caret on a new blank line. Paste `A single pasted task`. It gains `[TODAY'S LOCAL DATE] ` exactly once, even though the journal day is in 2000. Type a task on another blank line: it receives the same prefix.
-- [ ] Paste the following block into a blank Todo line. Both task lines gain today's date; the four-space indentation, heading, blank line, divider, completed entry and old date remain intact. Visual decoration may hide Markdown markers; inspect the saved file below to check the actual text.
+All 95 frontend tests, Go race tests, and the two publisher tests passed. The full production TypeScript/Vite build and signed/notarized macOS package passed. Publisher preparation was also exercised with an actual notarized archive, and a modified archive was rejected using its original signature.
 
-  ```text
-  First pasted task
-      An indented pasted child
-  # Pasted heading
+The automated suite covers save conflicts, failed/in-flight saves during quit, keyboard combinations and focus/visibility transitions beyond the native scenarios above. These are automated assertions, not claims that every combination was manually repeated on the Mac.
 
-  ---
-  ~~Already completed~~
-  [2000-01-01] Already dated
-  ```
+Some initial harness failures were measurement problems: accessibility hashes are not unique element identities; hidden accessibility text cannot prove visible hints; OCR missed the small hint labels; and a screenshot can lag a state transition. Hint evidence therefore includes direct visual inspection and the opt-in native/frontend event trace. One earlier batch stopped when the Mac locked; checks after that interruption were not counted as passes.
 
-- [ ] Press Command-Z once: the entire block and its new dates disappear together. Command-Shift-Z restores it in one step. The caret remains at the end of the paste, ready for further editing.
-- [ ] Select all the text of one task line and paste two undated task lines over it. Both replacements receive today's date; the lines above and below remain intact. Undo once restores the selected original text.
-- [ ] Paste `inserted ` into the middle of an existing dated task: only that text is inserted, with no extra date. Paste two lines into the middle of a task: the first joins the existing text, the new second task is dated, and the original suffix stays after the pasted text.
-- [ ] Paste a multiline block into Doing: it must not acquire Todo date tags. Confirm Doing clocks still display, and clicking a clock then pressing Backspace exposes its timestamp for editing; restoring the closing `)` restores the clock.
-- [ ] Press Command-S. Open `Todo/2000-01-20.jmtodo.md` in a plain-text viewer. Confirm the pasted line order, indentation and exemption markers, with no duplicated date prefixes.
+The scratch dates were 28-30 December 2099. Cleanup removed those journals and restored settings, clipboard and the original journal. Final batches matched every pre-batch original-file hash. The first batch observed one existing journal change while the old app was closing, before the fixture app started; its current contents were preserved.
 
-## Pane width and task hierarchy (#19, #22)
+## Evidence
 
-Before changing only the presentation, save and record the two existing files in Terminal:
+[Machine-readable results](workspace-results.json) contain native case names, process IDs, upgrade hashes and the distinction between native and automated coverage. Screenshots contain synthetic journal content:
 
-```sh
-shasum -a 256 "$JM_REVIEW_ROOT/Todo/2000-01-20.jmtodo.md" "$JM_REVIEW_ROOT/Doing/2000-01-20.jm.md" > "$JM_REVIEW_ROOT/before-layout.sha"
-```
+- [Narrow panes](workspace-evidence/narrow-panes.png) and [wide panes](workspace-evidence/wide-panes.png).
+- [Command hints visible](workspace-evidence/command-hints.png) and [Command released](workspace-evidence/command-released.png).
+- [Signed update ready](workspace-evidence/update-ready.png); the result manifest records the new version, PID and executable hash after relaunch.
 
-- [ ] Narrow and widen the window. Every visible pane stays the same width as its neighbours. The top and side editor gutters gradually shrink as each pane narrows, in both Todo and Doing; roomy panes retain the familiar maximum spacing.
-- [ ] Focus Todo, press Command-B to hide it, then Command-B to reveal it. Press Command-T to add a stream. Focus a pane and press Control-Option-Z to zoom it, then again to unzoom. Gutters recalculate on every change without reopening the day. The same editors retain their content, caret and scroll positions except where the action deliberately moves focus.
-- [ ] At a narrow width, read the long consecutive Todo tasks. Dates should be clearly distinguishable, and spacing plus a fine separator should distinguish tasks spanning several display lines. Indented tasks remain indented, headings remain headings, completed entries remain muted and struck through, and `---` remains a divider. Click near both text edges and edit/undo a character: there is no clipping or misplaced caret. Doing clocks retain their appearance.
-- [ ] Save, then run the following. No output means the two existing files are byte-for-byte unchanged by the layout and display checks. The intentionally created new Doing file is excluded.
-
-  ```sh
-  shasum -a 256 "$JM_REVIEW_ROOT/Todo/2000-01-20.jmtodo.md" "$JM_REVIEW_ROOT/Doing/2000-01-20.jm.md" > "$JM_REVIEW_ROOT/after-layout.sha"
-  diff "$JM_REVIEW_ROOT/before-layout.sha" "$JM_REVIEW_ROOT/after-layout.sha"
-  ```
-
-## Command-hold hints (#20)
-
-- [ ] Hold the left Command key for about half a second. Hints appear: Command-B on visible Todo; Command-1, Command-3 and Command-9 on their corresponding streams; none numbered on stream 10 or higher. Only the focused pane gets the Control-Option-Z zoom hint. Release Command: hints disappear immediately. Repeat with the right Command key.
-- [ ] Press a quick Command-S or Command-3 and release promptly. The command runs normally and there is no hint flash. Hold both Command keys, release one, then the other: hints stay while one is held and disappear after the last release.
-- [ ] Focus Todo and hide it with Command-B. Hold Command: **Show Todo** is discoverable. Reveal Todo, zoom a Doing pane, and hold Command again: the visible pane shows **Control-Option-Z Unzoom**, even though that action does not use Command.
-- [ ] With hints visible, switch to another app and release Command there. Return: no hints remain stuck. Repeat by switching away before the half-second reveal delay. Minimize and restore the window; hints must not linger. These checks deliberately change foreground focus and belong in this uninterrupted native test batch.
-
-## Shortcut reference and debug controls (#18)
-
-- [ ] Click the Command symbol at the upper-right. The keyboard reference opens with a focused close button. Scroll to read all three groups. Press Tab and Shift-Tab: focus remains in the reference. Escape dismisses it and returns focus to its opener. Repeat dismissal with the close button and with a click outside the sheet.
-- [ ] Before opening the reference, leave an unsaved edit and zoom a pane. While it is open, try Command-T, Command-B and Control-Option-Z. No stream is created and the workspace layout stays put. Dismiss it: the edit, unsaved indicator, zoom state and editor selection remain. Command-W while the reference is open dismisses the reference first.
-- [ ] Enable debug mode in Settings. The Command symbol and checkpoint button remain separately visible and clickable. Mark a checkpoint and open the reference. Drag an empty part of the surrounding title band: it moves the window. Clicking either control activates the control without dragging the window.
-- [ ] Create a conflict in the scratch Todo: leave an unsaved edit, then append an external line from the setup terminal:
-
-  ```sh
-  printf '\n[2000-01-01] External test change\n' >> "$JM_REVIEW_ROOT/Todo/2000-01-20.jmtodo.md"
-  ```
-
-  Wait for **Changed outside the app**. Open and dismiss the reference and hold Command: filenames, save state and **Use disk / Overwrite** remain legible. After dismissal, resolve the scratch conflict with **Use disk**. The external version appears and normal editing resumes.
-
-## Native window cycling (#21)
-
-- [ ] Save scratch edits and close all journal windows. Reopen exactly three days in this order: **20 January**, **19 January**, **18 January 2000**. Focus the 20 January window by clicking it.
-- [ ] Press Command-backtick six times, pausing after each. Expected focused dates: **19, 18, 20, 19, 18, 20**. Every press moves exactly one window; the endpoint wraps.
-- [ ] From 20 January, press Command-Shift-backtick six times. Expected dates: **18, 19, 20, 18, 19, 20**. Reverse cycling also wraps without skipping or firing twice. Repeat a full forward and reverse cycle with the caret inside Todo, then inside Doing.
-- [ ] Open Settings. Cycling from a journal window still visits only journal days. Minimize one journal window: the cycle restores and focuses it when its turn arrives. Close one journal window and cycle again: no stale entry or dead end remains. With only one journal window, either direction leaves that window focused.
-
-## Finish
-
-Save or discard the scratch edits, close the test windows, restore your original journal folder and debug setting, then quit the test build before reopening your usual app. Record the PR commit, macOS version, keyboard layout, and any failed step with its actual result. Leave unchecked steps explicitly unverified.
+The local raw harness and captures remain under `tmp/workspace-native/`; they are ignored by Git. Private journal paths, original-file hashes and clipboard backups are excluded from the committed evidence.
