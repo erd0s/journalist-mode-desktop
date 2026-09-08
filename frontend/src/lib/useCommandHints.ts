@@ -1,4 +1,6 @@
 import {useEffect, useState} from 'react';
+import {Events} from '@wailsio/runtime';
+import {appAPI} from '../api';
 
 export const commandHintDelay = 500;
 
@@ -50,16 +52,38 @@ export function useCommandHints(enabled: boolean): boolean {
             usedShortcut = held.size > 0;
             hide();
         };
+        let lastSequence = 0;
+        const native = appAPI.isNative();
+        const stopNative = native ? Events.On('keyboard:command-state', event => {
+            const state = event.data as {held: boolean; used: boolean; sequence: number};
+            if (state.sequence <= lastSequence) return;
+            lastSequence = state.sequence;
+            if (!state.held) {
+                reset();
+                return;
+            }
+            const wasHeld = held.size > 0;
+            held.add('native');
+            if (state.used) {
+                usedShortcut = true;
+                hide();
+            } else if (!wasHeld && !usedShortcut) {
+                timer = window.setTimeout(() => setVisible(true), commandHintDelay);
+            }
+        }) : undefined;
         window.addEventListener('journalist:native-command', commandUsed);
         window.addEventListener('copy', commandUsed);
         window.addEventListener('cut', commandUsed);
         window.addEventListener('paste', commandUsed);
-        window.addEventListener('keydown', down, true);
-        window.addEventListener('keyup', up, true);
+        if (!native) {
+            window.addEventListener('keydown', down, true);
+            window.addEventListener('keyup', up, true);
+        }
         window.addEventListener('blur', reset);
         document.addEventListener('visibilitychange', reset);
         return () => {
             reset();
+            stopNative?.();
             window.removeEventListener('journalist:native-command', commandUsed);
             window.removeEventListener('copy', commandUsed);
             window.removeEventListener('cut', commandUsed);

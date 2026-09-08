@@ -191,3 +191,33 @@ it('does not suppress the next hold after a mouse menu action or late native eve
     await hold();
     expect(hints()).not.toEqual([]);
 });
+
+it('uses native modifier state when WKWebView does not deliver Command key events', async () => {
+    vi.mocked(appAPI.isNative).mockReturnValue(true);
+    let stateChanged: Parameters<typeof Events.On>[1] | undefined;
+    vi.mocked(Events.On).mockImplementation((name, handler) => {
+        if (name === 'keyboard:command-state') stateChanged = handler;
+        return () => {};
+    });
+    await workspace();
+    const emit = async (held: boolean, used: boolean, sequence: number) => {
+        await act(async () => stateChanged!({data: {held, used, sequence}} as never));
+    };
+    await emit(true, false, 1);
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(hints()).toContain('⌘B');
+    // Releasing one of two held Command keys retains the aggregate modifier.
+    await emit(true, false, 2);
+    expect(hints()).toContain('⌘B');
+    await emit(true, true, 3);
+    expect(hints()).toEqual([]);
+    await emit(false, false, 4);
+    await emit(true, false, 2); // a delayed event cannot revive old hints
+    await act(async () => vi.advanceTimersByTime(700));
+    expect(hints()).toEqual([]);
+    await emit(true, false, 5);
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(hints()).toContain('⌘B');
+    await emit(false, false, 6);
+    expect(hints()).toEqual([]);
+});

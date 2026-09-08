@@ -92,6 +92,7 @@ func main() {
 		desktop.Reopen()
 	})
 	native.Event.OnApplicationEvent(events.Mac.ApplicationDidFinishLaunching, func(*application.ApplicationEvent) {
+		startNativeCommandHints(desktop)
 		if err := startNativeUpdates(desktop); err != nil {
 			log.Printf("Updater unavailable: %v", err)
 		}
