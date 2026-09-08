@@ -14,6 +14,7 @@ export function Welcome({days, onCreateToday, onOpenDay, embedded = false}: Welc
     const todaySummary = days.find(day => day.date === today);
     const previousDays = days.filter(day => day.date !== today);
     const todayButton = useRef<HTMLButtonElement>(null);
+    const contentRef = useRef<HTMLElement>(null);
     const primaryActionPending = useRef(false);
 
     const runPrimaryAction = async () => {
@@ -37,6 +38,20 @@ export function Welcome({days, onCreateToday, onOpenDay, embedded = false}: Welc
 
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
+            if (embedded && (event.key === 'ArrowDown' || event.key === 'ArrowUp')
+                && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+                const buttons = [...(contentRef.current?.querySelectorAll<HTMLButtonElement>(
+                    '.today-action, .day-row',
+                ) ?? [])];
+                const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+                const next = Math.max(0, Math.min(buttons.length - 1,
+                    index + (event.key === 'ArrowDown' ? 1 : -1)));
+                event.preventDefault();
+                event.stopPropagation();
+                buttons[next]?.focus({preventScroll: true});
+                buttons[next]?.scrollIntoView?.({block: 'nearest'});
+                return;
+            }
             if (event.key !== 'Enter' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
                 return;
             }
@@ -60,7 +75,7 @@ export function Welcome({days, onCreateToday, onOpenDay, embedded = false}: Welc
     return (
         <main className={`welcome-shell${embedded ? ' welcome-embedded' : ''}`}>
             {!embedded && <div className="window-drag-region" aria-hidden="true"/>}
-            <section className="welcome-content">
+            <section className="welcome-content" ref={contentRef}>
                 <button
                     ref={todayButton}
                     className="today-action"

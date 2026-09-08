@@ -148,6 +148,70 @@ describe('Welcome', () => {
         });
     });
 
+    describe('modal arrow navigation', () => {
+        async function key(key: string, target: EventTarget = document.activeElement!) {
+            const event = new KeyboardEvent('keydown', {key, bubbles: true, cancelable: true});
+            await act(async () => { target.dispatchEvent(event); });
+            return event;
+        }
+
+        it('starts on Today and moves one row at a time in both directions, stopping at the ends', async () => {
+            await render({embedded: true, days: [...daysWithToday,
+                {date: '2026-09-01', doingCount: 1, hasTodo: true} as DaySummary]});
+            const buttons = [...host.querySelectorAll<HTMLButtonElement>('.today-action, .day-row')];
+            expect(document.activeElement).toBe(buttons[0]);
+            const scroll = vi.fn();
+            buttons.forEach(button => { button.scrollIntoView = scroll; });
+            for (const [direction, index] of [
+                ['ArrowUp', 0], ['ArrowDown', 1], ['ArrowDown', 2],
+                ['ArrowDown', 2], ['ArrowUp', 1], ['ArrowUp', 0],
+            ] as const) {
+                expect((await key(direction)).defaultPrevented).toBe(true);
+                expect(document.activeElement).toBe(buttons[index]);
+            }
+            expect(scroll).toHaveBeenCalledWith({block: 'nearest'});
+        });
+
+        it('opens the selected previous day with Return and can navigate back to Today', async () => {
+            const {onOpenDay} = await render({embedded: true});
+            await key('ArrowDown');
+            const selected = document.activeElement as HTMLButtonElement;
+            expect(selected.classList.contains('day-row')).toBe(true);
+            const enter = await key('Enter');
+            // jsdom lacks the browser's default Return-to-click behavior.
+            if (!enter.defaultPrevented) await act(async () => selected.click());
+            expect(onOpenDay).toHaveBeenCalledExactlyOnceWith(PREVIOUS);
+            await key('ArrowUp');
+            await key('Enter');
+            expect(onOpenDay).toHaveBeenLastCalledWith(TODAY);
+        });
+
+        it('starts a missing Today after navigating back to it', async () => {
+            const {onCreateToday} = await render({embedded: true, days: daysWithoutToday});
+            await key('ArrowDown');
+            await key('ArrowUp');
+            await key('Enter');
+            expect(onCreateToday).toHaveBeenCalledOnce();
+        });
+
+        it('does not navigate outside the modal picker', async () => {
+            await render();
+            expect((await key('ArrowDown', document.body)).defaultPrevented).toBe(false);
+        });
+
+        it('captures arrows before an editor behind the modal can act on them', async () => {
+            await render({embedded: true});
+            const editor = document.createElement('div');
+            document.body.appendChild(editor);
+            const editorKey = vi.fn();
+            editor.addEventListener('keydown', editorKey);
+            try {
+                expect((await key('ArrowDown', editor)).defaultPrevented).toBe(true);
+                expect(editorKey).not.toHaveBeenCalled();
+            } finally { editor.remove(); }
+        });
+    });
+
     describe('Return key', () => {
         async function pressReturn(target: EventTarget = document.body, init: KeyboardEventInit = {}) {
             const event = new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, cancelable: true, ...init});

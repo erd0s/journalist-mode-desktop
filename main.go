@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/url"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -358,7 +359,66 @@ func applicationMenu(native *application.App, service *App, desktop *Desktop) *a
 	}
 
 	result.AddRole(application.WindowMenu)
+	windowMenu := result.FindByLabel("Window").GetSubmenu()
+	windowMenu.AddSeparator()
+	addWindowCycleItems(windowMenu, desktop.cycleDayWindow)
 	return result
+}
+
+func addWindowCycleItems(menu *application.Menu, cycle func(int)) {
+	menu.Add("Next Journal Window").SetAccelerator("CmdOrCtrl+`").OnClick(func(*application.Context) { cycle(1) })
+	menu.Add("Previous Journal Window").SetAccelerator("CmdOrCtrl+Shift+`").OnClick(func(*application.Context) { cycle(-1) })
+}
+
+type journalWindow interface {
+	ID() uint
+	Name() string
+	Show() application.Window
+	Restore()
+	Focus()
+}
+
+func (d *Desktop) cycleDayWindow(delta int) {
+	d.windowMu.Lock()
+	defer d.windowMu.Unlock()
+	var windows []journalWindow
+	for _, window := range d.native.Window.GetAll() {
+		windows = append(windows, window)
+	}
+	currentID := ^uint(0)
+	if current := d.native.Window.Current(); current != nil {
+		currentID = current.ID()
+	}
+	cycleJournalWindow(windows, currentID, delta)
+}
+
+func cycleJournalWindow(windows []journalWindow, currentID uint, delta int) {
+	var days []journalWindow
+	for _, window := range windows {
+		if strings.HasPrefix(window.Name(), "day-") {
+			days = append(days, window)
+		}
+	}
+	if len(days) == 0 {
+		return
+	}
+	// Wails stores windows in a map. Creation IDs give the cycle a stable order
+	// that does not change as each target is brought to the front.
+	sort.Slice(days, func(i, j int) bool { return days[i].ID() < days[j].ID() })
+	next := 0
+	if delta < 0 {
+		next = len(days) - 1
+	}
+	for index, window := range days {
+		if window.ID() == currentID {
+			next = (index + delta + len(days)) % len(days)
+			break
+		}
+	}
+	target := days[next]
+	target.Show()
+	target.Restore()
+	target.Focus()
 }
 
 func emitToCurrent(native *application.App, name string, data ...any) {

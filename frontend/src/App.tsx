@@ -4,6 +4,7 @@ import './App.css';
 import {appAPI, DayData, DaySummary, Settings} from './api';
 import {DayWorkspace, WorkspaceSaveState} from './components/DayWorkspace';
 import {SettingsView} from './components/SettingsView';
+import {ShortcutReference} from './components/ShortcutReference';
 import {Welcome} from './components/Welcome';
 import {needsCloseConfirmation, WorkspaceAction, WorkspaceActionRequest} from './lib/workspace';
 
@@ -29,6 +30,8 @@ export default function App() {
         revision: 0,
     });
     const [dayPickerOpen, setDayPickerOpen] = useState(false);
+    const [shortcutsOpen, setShortcutsOpen] = useState(false);
+    const shortcutReturnFocus = useRef<HTMLElement | null>(null);
     const settingsReturnScreen = useRef<Screen>('welcome');
     const closeSaveRevision = useRef(0);
     const workspaceSaveStateRef = useRef<WorkspaceSaveState>('saved');
@@ -94,7 +97,7 @@ export default function App() {
     };
 
     const showDayPicker = () => {
-        if (screen === 'welcome' || closePrompt) {
+        if (screen === 'welcome' || closePrompt || shortcutsOpen) {
             return;
         }
         setDayPickerOpen(true);
@@ -102,7 +105,7 @@ export default function App() {
     };
 
     const openSettings = () => {
-        if (closePrompt) {
+        if (closePrompt || shortcutsOpen) {
             return;
         }
         void appAPI.getDebugLogDirectory()
@@ -134,6 +137,10 @@ export default function App() {
     };
 
     const requestWindowClose = () => {
+        if (shortcutsOpen) {
+            setShortcutsOpen(false);
+            return;
+        }
         if (closePrompt) {
             return;
         }
@@ -181,28 +188,28 @@ export default function App() {
 
         const stopOpen = Events.On('menu:open', showDayPicker);
         const stopSave = Events.On('menu:save', () => {
-            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt && !shortcutsOpen) {
                 setSaveRequest(request => request + 1);
             }
         });
         const stopToggleAllDoingHistory = Events.On('menu:toggle-all-doing-history', () => {
-            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt && !shortcutsOpen) {
                 requestWorkspaceAction({type: 'toggle-all-doing-history'});
             }
         });
         const stopToggleFocusedDoingHistory = Events.On('menu:toggle-focused-doing-history', () => {
-            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt && !shortcutsOpen) {
                 requestWorkspaceAction({type: 'toggle-focused-doing-history'});
             }
         });
         const stopNewDoing = Events.On('menu:new-doing', () => {
-            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt && !shortcutsOpen) {
                 setNewDoingRequest(request => request + 1);
             }
         });
         const stopFocusPane = Events.On('menu:focus-pane', event => {
             const position = Number(event.data);
-            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt && !shortcutsOpen) {
                 if (position === 0) {
                     requestWorkspaceAction({type: 'focus-todo'});
                 } else {
@@ -212,12 +219,12 @@ export default function App() {
         });
         const stopMoveFocus = Events.On('menu:move-focus', event => {
             const delta = Number(event.data) as -1 | 1;
-            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt && !shortcutsOpen) {
                 requestWorkspaceAction({type: 'move-focus', delta});
             }
         });
         const stopTogglePaneZoom = Events.On('menu:toggle-pane-zoom', () => {
-            if (screen === 'day' && !dayPickerOpen && !closePrompt) {
+            if (screen === 'day' && !dayPickerOpen && !closePrompt && !shortcutsOpen) {
                 requestWorkspaceAction({type: 'toggle-zoom'});
             }
         });
@@ -274,7 +281,7 @@ export default function App() {
                 setDayPickerOpen(false);
                 return;
             }
-            if (closePrompt) {
+            if (closePrompt || shortcutsOpen) {
                 return;
             }
             // Native menu accelerators own application commands in Wails.
@@ -434,12 +441,22 @@ export default function App() {
                     discardRequest={discardRequest}
                     newDoingRequest={newDoingRequest}
                     workspaceActionRequest={workspaceActionRequest}
-                    interactionDisabled={dayPickerOpen || closePrompt !== null}
+                    interactionDisabled={dayPickerOpen || closePrompt !== null || shortcutsOpen}
+                    onShowShortcuts={() => {
+                        // Capture before inert blurs the workspace in a browser.
+                        shortcutReturnFocus.current = document.activeElement as HTMLElement;
+                        setShortcutsOpen(true);
+                    }}
                     onError={message => setError(message)}
                     onSaveStateChange={handleWorkspaceSaveStateChange}
                     onSaveComplete={handleSaveComplete}
                 />
             )}
+
+            {shortcutsOpen && <ShortcutReference
+                returnFocus={shortcutReturnFocus.current}
+                onDismiss={() => setShortcutsOpen(false)}
+            />}
 
             {closePrompt && (
                 <div className="close-prompt-backdrop">

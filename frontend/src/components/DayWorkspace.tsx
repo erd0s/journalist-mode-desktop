@@ -14,6 +14,7 @@ import {
     WorkspaceSaveState,
     workspaceActionForShortcut,
 } from '../lib/workspace';
+import {useCommandHints} from '../lib/useCommandHints';
 import {Icon} from './Icons';
 import {EditorInteraction, LineEditor} from './LineEditor';
 
@@ -29,6 +30,7 @@ type DayWorkspaceProps = {
     newDoingRequest: number;
     workspaceActionRequest: WorkspaceActionRequest;
     interactionDisabled: boolean;
+    onShowShortcuts?: () => void;
     onError: (message: string) => void;
     onSaveStateChange: (state: WorkspaceSaveState) => void;
     onSaveComplete: (revision: number, succeeded: boolean) => void;
@@ -55,10 +57,12 @@ export function DayWorkspace({
     newDoingRequest,
     workspaceActionRequest,
     interactionDisabled,
+    onShowShortcuts,
     onError,
     onSaveStateChange,
     onSaveComplete,
 }: DayWorkspaceProps) {
+    const showHints = useCommandHints(!interactionDisabled);
     const [doingFiles, setDoingFiles] = useState<JournalFile[]>(day.doing);
     const files = useMemo(() => [day.todo, ...doingFiles], [day.todo, doingFiles]);
     const paths = useMemo(() => files.map(file => file.path), [files]);
@@ -553,6 +557,7 @@ export function DayWorkspace({
     return (
         <main
             className="workspace-shell"
+            {...(interactionDisabled ? {inert: ''} : {})}
             onKeyDownCapture={event => void recordDebug({
                 category: 'input',
                 action: 'keydown',
@@ -579,18 +584,26 @@ export function DayWorkspace({
             })}
         >
             <div className="window-drag-region" aria-hidden="true"/>
-            {debugMode && (
-                <button
-                    type="button"
-                    className={`debug-checkpoint-button ${checkpointState}`}
-                    aria-label="Mark debug checkpoint"
-                    title="Mark the current state in the debug log"
-                    onClick={() => void markDebugCheckpoint()}
-                    disabled={checkpointState === 'saving'}
-                >
-                    <Icon name={checkpointState === 'saved' ? 'check' : 'flag'} size={15}/>
-                    <span>{checkpointState === 'saved' ? 'Marked' : 'Checkpoint'}</span>
-                </button>
+            <div className="workspace-title-actions">
+                <button type="button" className="shortcut-reference-button"
+                    aria-label="Keyboard shortcuts" title="Keyboard shortcuts"
+                    onClick={onShowShortcuts} disabled={interactionDisabled}>⌘</button>
+                {debugMode && (
+                    <button
+                        type="button"
+                        className={`debug-checkpoint-button ${checkpointState}`}
+                        aria-label="Mark debug checkpoint"
+                        title="Mark the current state in the debug log"
+                        onClick={() => void markDebugCheckpoint()}
+                        disabled={checkpointState === 'saving'}
+                    >
+                        <Icon name={checkpointState === 'saved' ? 'check' : 'flag'} size={15}/>
+                        <span>{checkpointState === 'saved' ? 'Marked' : 'Checkpoint'}</span>
+                    </button>
+                )}
+            </div>
+            {showHints && !todoVisible && !zoomedPath && (
+                <div className="hidden-todo-hint" aria-hidden="true"><kbd>⌘B</kbd> Show Todo</div>
             )}
             <section className={`pane-strip${zoomedPath ? ' is-zoomed' : ''}`}>
                 <TodoPane
@@ -606,6 +619,7 @@ export function DayWorkspace({
                     focusRequest={editorFocus.path === day.todo.path ? editorFocus.revision : 0}
                     hidden={!todoVisible || Boolean(zoomedPath && zoomedPath !== day.todo.path)}
                     onFocus={() => setFocusedPath(day.todo.path)}
+                    shortcutHint={showHints ? paneHint('⌘B', focusedPath === day.todo.path, Boolean(zoomedPath)) : ''}
                 />
                 {doingFiles.length > 0 ? doingFiles.map(file => (
                     <DoingPane
@@ -621,6 +635,7 @@ export function DayWorkspace({
                         onDebugInteraction={reportDebugInteraction}
                         showCompleted={Boolean(doingHistoryVisible[file.path])}
                         onFocus={() => setFocusedPath(file.path)}
+                        shortcutHint={showHints ? paneHint(file.streamIndex <= 9 ? `⌘${file.streamIndex}` : '', focusedPath === file.path, Boolean(zoomedPath)) : ''}
                         focusRequest={editorFocus.path === file.path ? editorFocus.revision : 0}
                         hidden={Boolean(zoomedPath && zoomedPath !== file.path)}
                     />
@@ -635,6 +650,11 @@ export function DayWorkspace({
     );
 }
 
+function paneHint(focus: string, focused: boolean, zoomed: boolean): string {
+    if (zoomed) return '⌃⌥Z  Unzoom';
+    return [focus, focused ? '⌃⌥Z  Zoom' : ''].filter(Boolean).join('   ·   ');
+}
+
 type DiskAwarePaneProps = {
     file: JournalFile;
     saveRequest: number;
@@ -647,6 +667,7 @@ type DiskAwarePaneProps = {
     onDebugInteraction: DebugInteractionReporter;
     focusRequest: number;
     hidden: boolean;
+    shortcutHint: string;
     onFocus: () => void;
 };
 
@@ -662,6 +683,7 @@ function TodoPane({
     onDebugInteraction,
     focusRequest,
     hidden,
+    shortcutHint,
     onFocus,
 }: DiskAwarePaneProps) {
     const journal = useJournalFile(
@@ -684,6 +706,7 @@ function TodoPane({
                 onUseDisk={journal.useDiskVersion}
                 onOverwrite={journal.overwriteDisk}
             />
+            {shortcutHint && <div className="pane-shortcut-hint" aria-hidden="true">{shortcutHint}</div>}
             <LineEditor
                 kind="todo"
                 lines={journal.lines}
@@ -714,6 +737,7 @@ function DoingPane({
     onFocus,
     focusRequest,
     hidden,
+    shortcutHint,
 }: DoingPaneProps) {
     const journal = useJournalFile(
         file,
@@ -735,6 +759,7 @@ function DoingPane({
                 onUseDisk={journal.useDiskVersion}
                 onOverwrite={journal.overwriteDisk}
             />
+            {shortcutHint && <div className="pane-shortcut-hint" aria-hidden="true">{shortcutHint}</div>}
             <LineEditor
                 kind="doing"
                 lines={journal.lines}
