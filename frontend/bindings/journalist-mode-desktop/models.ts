@@ -195,6 +195,35 @@ export class DebugFileSnapshot {
 }
 
 /**
+ * FollowDesktopStatus tells the frontend whether the native Space observer is
+ * usable, so Settings can explain an inactive switch.
+ */
+export class FollowDesktopStatus {
+    "available": boolean;
+    "reason": string;
+
+    /** Creates a new FollowDesktopStatus instance. */
+    constructor($$source: Partial<FollowDesktopStatus> = {}) {
+        if (!("available" in $$source)) {
+            this["available"] = false;
+        }
+        if (!("reason" in $$source)) {
+            this["reason"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FollowDesktopStatus instance from a string or object.
+     */
+    static createFrom($$source: any = {}): FollowDesktopStatus {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FollowDesktopStatus($$parsedSource as Partial<FollowDesktopStatus>);
+    }
+}
+
+/**
  * JournalFile is one plain-text file displayed by the day workspace.
  */
 export class JournalFile {

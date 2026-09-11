@@ -80,18 +80,24 @@ export function GetDebugLogDirectory(): $CancellablePromise<string> {
     return $Call.ByID(2452506095);
 }
 
+export function GetFollowDesktopStatus(): $CancellablePromise<$models.FollowDesktopStatus> {
+    return $Call.ByID(3541499468).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
 /**
  * GetSettings returns persisted settings or the default ~/Documents/JM root.
  */
 export function GetSettings(): $CancellablePromise<$models.Settings> {
     return $Call.ByID(2554697378).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function GetUpdateStatus(): $CancellablePromise<$models.UpdateStatus> {
     return $Call.ByID(946602336).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType4($result);
     });
 }
 
@@ -100,7 +106,7 @@ export function GetUpdateStatus(): $CancellablePromise<$models.UpdateStatus> {
  */
 export function ListDays(): $CancellablePromise<$models.DaySummary[]> {
     return $Call.ByID(2876593206).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType6($result);
     });
 }
 
@@ -142,7 +148,7 @@ export function OpenSettingsWindow(): $CancellablePromise<string> {
  */
 export function ReadJournalFiles(paths: string[]): $CancellablePromise<$models.JournalFile[]> {
     return $Call.ByID(2433091695, paths).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType7($result);
     });
 }
 
@@ -162,7 +168,7 @@ export function RecordDebugEvents(events: $models.DebugEvent[]): $CancellablePro
  */
 export function SaveFile(path: string, content: string, expectedContent: string, force: boolean): $CancellablePromise<$models.SaveResult> {
     return $Call.ByID(1396636678, path, content, expectedContent, force).then(($result: any) => {
-        return $$createType7($result);
+        return $$createType8($result);
     });
 }
 
@@ -171,7 +177,7 @@ export function SaveFile(path: string, content: string, expectedContent: string,
  */
 export function SaveSettings(settings: $models.Settings): $CancellablePromise<$models.Settings> {
     return $Call.ByID(1949631069, settings).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -184,16 +190,17 @@ export function SetAutomaticUpdateChecks(enabled: boolean): $CancellablePromise<
  */
 export function SetEditorFont(font: string): $CancellablePromise<$models.Settings> {
     return $Call.ByID(3401608479, font).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 // Private type creation functions
 const $$createType0 = $models.DayData.createFrom;
 const $$createType1 = $models.JournalFile.createFrom;
-const $$createType2 = $models.Settings.createFrom;
-const $$createType3 = $models.UpdateStatus.createFrom;
-const $$createType4 = $models.DaySummary.createFrom;
-const $$createType5 = $Create.Array($$createType4);
-const $$createType6 = $Create.Array($$createType1);
-const $$createType7 = $models.SaveResult.createFrom;
+const $$createType2 = $models.FollowDesktopStatus.createFrom;
+const $$createType3 = $models.Settings.createFrom;
+const $$createType4 = $models.UpdateStatus.createFrom;
+const $$createType5 = $models.DaySummary.createFrom;
+const $$createType6 = $Create.Array($$createType5);
+const $$createType7 = $Create.Array($$createType1);
+const $$createType8 = $models.SaveResult.createFrom;

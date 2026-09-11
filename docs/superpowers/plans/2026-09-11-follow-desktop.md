@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-11-follow-desktop-design.md`
 
+> **Revision after adversarial review (2026-09-11):** the implementation differs from the task text below in these ways: `desktopChange` also returns the changed display and the follower keeps the last numbered desktop per display, so returning from a full-screen Space to the same desktop is not a change; wake and display-parameter notifications publish baselines through `submitBaseline`; `App` guards settings reads and the enable-then-write in `SaveSettings` with `settingsMu`; the launch-time `menu:error` broadcast is replaced by the `GetFollowDesktopStatus` binding shown in Settings and day windows; snapshot errors go to today's window or every window; and an unresolved file conflict no longer defers a change. The spec's "Review outcomes" section lists the reasoning.
+
 ## Global Constraints
 
 - Never call `Show`, `Focus`, `UnMinimise`, `Restore` or `SetAlwaysOnTop` from the desktop-follow path. Only `Name`, `ID` and `DispatchWailsEvent` may be called on the target window.

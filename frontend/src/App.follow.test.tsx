@@ -8,6 +8,7 @@ const harness = vi.hoisted(() => ({
     events: new Map<string, (event: {data: unknown}) => void>(),
     actions: [] as string[],
     settings: {storageRoot: '/journal', editorFont: 'system', debugMode: false, followDesktop: true},
+    status: {available: true, reason: ''},
     setState: (_state: string) => {},
 }));
 vi.mock('@wailsio/runtime', () => ({
@@ -21,6 +22,7 @@ vi.mock('./api', () => ({appAPI: {
     isNative: () => true,
     isSettingsWindow: () => false,
     getSettings: async () => harness.settings,
+    getFollowDesktopStatus: async () => harness.status,
     listDays: async () => [],
     getLaunchDate: async () => '2026-09-11',
     openDay: async () => ({date: '2026-09-11', todo: {}, doing: []}),
@@ -46,6 +48,7 @@ describe('desktop follow routing', () => {
         harness.events.clear();
         harness.actions = [];
         harness.settings = {...harness.settings, followDesktop: true};
+        harness.status = {available: true, reason: ''};
         host = document.createElement('div');
         document.body.appendChild(host);
         root = createRoot(host);
@@ -92,11 +95,19 @@ describe('desktop follow routing', () => {
         expect(harness.actions).toEqual([]);
     });
 
-    it('defers while a file conflict is unresolved', async () => {
+    it('applies a change at once while a file conflict is showing, so manual choices are never overridden later', async () => {
         await act(async () => harness.setState('conflict'));
         await event('desktop:changed', {desktop: 4, sequence: 1});
-        expect(harness.actions).toEqual([]);
+        expect(harness.actions).toEqual([zoom(4)]);
         await act(async () => harness.setState('saved'));
         expect(harness.actions).toEqual([zoom(4)]);
+    });
+
+    it('shows why following is inactive when the setting is on but the native monitor is unavailable', async () => {
+        await act(async () => root.unmount());
+        harness.status = {available: false, reason: 'SkyLight does not export SLSCopyManagedDisplaySpaces'};
+        root = createRoot(host);
+        await act(async () => root.render(<App/>));
+        expect(host.querySelector('.error-banner')?.textContent).toContain('SLSCopyManagedDisplaySpaces');
     });
 });

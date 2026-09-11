@@ -105,15 +105,18 @@ func TestDesktopChangeDetection(t *testing.T) {
 			{ID: "A", Current: 2, Spaces: []managedSpace{{7, 0}, {1, 0}, {2, 0}, {3, 0}}},
 			{ID: "B", Current: 4, Spaces: []managedSpace{{4, 0}, {5, 0}}}}}, 0, false},
 	} {
-		desktop, changed, err := desktopChange(test.previous, test.next)
+		display, desktop, changed, err := desktopChange(test.previous, test.next)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		if desktop != test.desktop || changed != test.changed {
 			t.Fatalf("%s: got desktop %d changed %v, want %d %v", name, desktop, changed, test.desktop, test.changed)
 		}
+		if changed && display != map[int]string{3: "A", 5: "B", 1: "A"}[desktop] {
+			t.Fatalf("%s: changed display %q", name, display)
+		}
 	}
-	if _, _, err := desktopChange(twoDisplays(1, 4), twoDisplays(77, 4)); err == nil {
+	if _, _, _, err := desktopChange(twoDisplays(1, 4), twoDisplays(77, 4)); err == nil {
 		t.Fatal("switching to a space missing from the list must be an error")
 	}
 }
@@ -170,11 +173,15 @@ func TestDesktopFollowerDispatchesOnlyWhileEnabled(t *testing.T) {
 	h.follower.process()
 	h.follower.submit([]byte(oneDisplay(3)))
 	h.follower.process()
-	h.follower.submit([]byte(oneDisplay(9))) // Full screen.
+	h.follower.submit([]byte(oneDisplay(9))) // Full screen: no numbered desktop.
 	h.follower.process()
-	h.follower.submit([]byte(oneDisplay(3))) // Back to the same desktop is a real change.
+	h.follower.submit([]byte(oneDisplay(3))) // Back to the same desktop is not a desktop change.
 	h.follower.process()
-	if want := []string{"3@1", "3@2"}; !reflect.DeepEqual(h.dispatched, want) {
+	h.follower.submit([]byte(oneDisplay(9)))
+	h.follower.process()
+	h.follower.submit([]byte(oneDisplay(1))) // Full screen to a different desktop is.
+	h.follower.process()
+	if want := []string{"3@1", "1@2"}; !reflect.DeepEqual(h.dispatched, want) {
 		t.Fatalf("dispatched %v, want %v", h.dispatched, want)
 	}
 	if len(h.reported) != 0 {
@@ -278,5 +285,63 @@ func TestDesktopChangeTargetsOnlyTodaysWindow(t *testing.T) {
 	dispatchToWindow(today, "desktop:changed", map[string]any{"desktop": 7, "sequence": uint64(3)})
 	if len(today.events) != 1 || today.events[0].Name != "desktop:changed" {
 		t.Fatalf("unexpected events: %#v", today.events)
+	}
+}
+
+func TestDesktopFollowerBaselineResetsWithoutDispatch(t *testing.T) {
+	h := newFollowerHarness()
+	h.snapshots = append(h.snapshots, oneDisplay(1))
+	if err := h.follower.start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.follower.setEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	// Waking from sleep on another desktop re-baselines instead of following.
+	h.follower.submitBaseline([]byte(oneDisplay(3)))
+	h.follower.submit([]byte(oneDisplay(3)))
+	h.follower.process()
+	if len(h.dispatched) != 0 {
+		t.Fatalf("baseline must not dispatch: %v", h.dispatched)
+	}
+	h.follower.submit([]byte(oneDisplay(2)))
+	h.follower.process()
+	if want := []string{"2@1"}; !reflect.DeepEqual(h.dispatched, want) {
+		t.Fatalf("dispatched %v, want %v", h.dispatched, want)
+	}
+	// A queued change is dropped by a later baseline.
+	h.follower.submit([]byte(oneDisplay(1)))
+	h.follower.submitBaseline([]byte(oneDisplay(1)))
+	if h.follower.process() {
+		t.Fatal("baseline must drain the queued change")
+	}
+	if len(h.dispatched) != 1 {
+		t.Fatalf("queued change delivered after baseline: %v", h.dispatched)
+	}
+	h.follower.submitBaseline([]byte(`{"error":"broken"}`))
+	if len(h.reported) != 1 || !strings.Contains(h.reported[0], "broken") {
+		t.Fatalf("a bad baseline must be reported: %v", h.reported)
+	}
+}
+
+func TestDesktopFollowerTracksLastNumberedDesktopPerDisplay(t *testing.T) {
+	h := newFollowerHarness()
+	two := func(a, b uint64) string {
+		return fmt.Sprintf(`{"displays":[{"Display Identifier":"A","Current Space":{"id64":%d},"Spaces":[{"id64":1,"type":0},{"id64":2,"type":0},{"id64":100,"type":4}]},{"Display Identifier":"B","Current Space":{"id64":%d},"Spaces":[{"id64":4,"type":0},{"id64":5,"type":0}]}]}`, a, b)
+	}
+	h.snapshots = append(h.snapshots, two(1, 4))
+	if err := h.follower.start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.follower.setEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	for _, payload := range []string{two(100, 4), two(100, 5), two(1, 5), two(2, 5)} {
+		h.follower.submit([]byte(payload))
+		h.follower.process()
+	}
+	// Display A: 1 -> full screen (ignored) -> back to 1 (same) -> 2. Display B: 4 -> 5.
+	if want := []string{"4@1", "2@2"}; !reflect.DeepEqual(h.dispatched, want) {
+		t.Fatalf("dispatched %v, want %v", h.dispatched, want)
 	}
 }

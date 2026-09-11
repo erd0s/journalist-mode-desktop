@@ -1,7 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import <dlfcn.h>
 
-extern void journalistDesktopSnapshot(char *json);
+extern void journalistDesktopSnapshot(char *json, int baseline);
 
 typedef int CGSConnectionID;
 static CGSConnectionID (*jm_SLSMainConnectionID)(void);
@@ -35,9 +35,9 @@ char *jm_desktop_snapshot(void) {
     return jm_json_string(payload);
 }
 
-static void jm_publish_desktop_snapshot(void) {
+static void jm_publish_desktop_snapshot(int baseline) {
     char *json = jm_desktop_snapshot();
-    journalistDesktopSnapshot(json);
+    journalistDesktopSnapshot(json, baseline);
     free(json);
 }
 
@@ -50,12 +50,21 @@ char *jm_start_desktop_monitor(void) {
     if (!jm_SLSMainConnectionID) return strdup("SkyLight does not export SLSMainConnectionID");
     if (!jm_SLSCopyManagedDisplaySpaces) return strdup("SkyLight does not export SLSCopyManagedDisplaySpaces");
     desktopMonitorStarted = YES;
-    [NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:NSWorkspaceActiveSpaceDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
-        jm_publish_desktop_snapshot();
+    // Space changes are posted on the workspace notification centre, not the
+    // default one. Wake notifications live there too.
+    NSNotificationCenter *workspace = NSWorkspace.sharedWorkspace.notificationCenter;
+    [workspace addObserverForName:NSWorkspaceActiveSpaceDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+        jm_publish_desktop_snapshot(0);
     }];
-    // Displays coming and going reorder desktops; refresh the baseline.
+    // Waking, and displays coming or going, re-baseline: the desktop may
+    // differ from the one seen before sleep without the user switching.
+    for (NSNotificationName name in @[NSWorkspaceDidWakeNotification, NSWorkspaceScreensDidWakeNotification]) {
+        [workspace addObserverForName:name object:nil queue:nil usingBlock:^(NSNotification *note) {
+            jm_publish_desktop_snapshot(1);
+        }];
+    }
     [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidChangeScreenParametersNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
-        jm_publish_desktop_snapshot();
+        jm_publish_desktop_snapshot(1);
     }];
     return NULL;
 }

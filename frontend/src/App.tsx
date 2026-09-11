@@ -48,13 +48,14 @@ export default function App() {
         setWorkspaceSaveState(state);
     }, []);
 
-    const loadWelcome = async () => {
+    const loadWelcome = async (): Promise<Settings> => {
         const [nextSettings, nextDays] = await Promise.all([
             appAPI.getSettings(),
             appAPI.listDays(),
         ]);
         setSettings(nextSettings);
         setDays(nextDays ?? []);
+        return nextSettings;
     };
 
     const showDay = (day: DayData) => {
@@ -139,10 +140,11 @@ export default function App() {
         }));
     };
 
-    // A desktop change must not interrupt a prompt, a quit or an unresolved
-    // file conflict; the latest target waits until that flow ends.
+    // A desktop change must not interrupt a modal prompt or a quit. The
+    // latest target waits until that flow ends. The workspace is inert while
+    // a modal shows, so no manual choice can be overridden by the deferral.
     const followBlocked = () => dayPickerOpen || closePrompt !== null || shortcutsOpen
-        || quitRequestRef.current !== null || workspaceSaveStateRef.current === 'conflict';
+        || quitRequestRef.current !== null;
 
     const cancelQuitOrClose = () => {
         const request = quitRequestRef.current;
@@ -208,10 +210,16 @@ export default function App() {
                 setScreen('settings');
                 return;
             }
-            await loadWelcome();
+            const launchSettings = await loadWelcome();
             const launchDate = await appAPI.getLaunchDate();
             if (launchDate) {
                 showDay(await appAPI.openDay(launchDate));
+                if (launchSettings.followDesktop) {
+                    const status = await appAPI.getFollowDesktopStatus();
+                    if (!status.available) {
+                        setError(`Follow macOS desktop is unavailable: ${status.reason}`);
+                    }
+                }
             }
         };
 
@@ -391,7 +399,7 @@ export default function App() {
 
     useEffect(() => {
         if (pendingDesktop.current === null || screen !== 'day' || dayPickerOpen || closePrompt
-            || shortcutsOpen || quitRequest || workspaceSaveState === 'conflict') {
+            || shortcutsOpen || quitRequest) {
             return;
         }
         const desktop = pendingDesktop.current;
@@ -399,7 +407,7 @@ export default function App() {
         if (settings?.followDesktop) {
             requestWorkspaceAction({type: 'focus-doing-zoomed', streamIndex: desktop});
         }
-    }, [closePrompt, dayPickerOpen, quitRequest, screen, settings, shortcutsOpen, workspaceSaveState]);
+    }, [closePrompt, dayPickerOpen, quitRequest, screen, settings, shortcutsOpen]);
 
     useEffect(() => {
         if (closePrompt !== 'waiting' || workspaceSaveState === 'saving') {

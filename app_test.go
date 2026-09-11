@@ -461,3 +461,18 @@ func TestFollowDesktopCannotBeEnabledWhenUnavailable(t *testing.T) {
 		t.Fatalf("the rejected setting must stay off: %#v %v", reloaded, err)
 	}
 }
+
+func TestFollowDesktopStatusReportsAvailability(t *testing.T) {
+	app := newAppForPaths(t.TempDir(), filepath.Join(t.TempDir(), "settings.json"))
+	if status := app.GetFollowDesktopStatus(); status.Available || status.Reason == "" {
+		t.Fatalf("without a window manager the feature is unavailable: %#v", status)
+	}
+	app.desktop = &Desktop{service: app}
+	if status := app.GetFollowDesktopStatus(); !status.Available || status.Reason != "" {
+		t.Fatalf("a started monitor is available: %#v", status)
+	}
+	app.desktop.followUnavailable = "SkyLight does not export SLSCopyManagedDisplaySpaces"
+	if status := app.GetFollowDesktopStatus(); status.Available || !strings.Contains(status.Reason, "SLSCopyManagedDisplaySpaces") {
+		t.Fatalf("the native reason must be reported: %#v", status)
+	}
+}

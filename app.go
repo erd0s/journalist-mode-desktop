@@ -71,14 +71,18 @@ type DayData struct {
 
 // App is the native boundary for settings and journal-file access.
 type App struct {
-	homeDir       string
-	settingsPath  string
-	fileMu        sync.Mutex
-	debugMu       sync.Mutex
-	debugKnown    bool
-	debugEnabled  bool
-	debugSession  string
-	debugLogPath  string
+	homeDir      string
+	settingsPath string
+	fileMu       sync.Mutex
+	debugMu      sync.Mutex
+	debugKnown   bool
+	debugEnabled bool
+	debugSession string
+	debugLogPath string
+	// settingsMu orders every settings.json read against SaveSettings, so a
+	// file poll cannot apply a stale followDesktop value between enabling the
+	// native follower and writing the file.
+	settingsMu    sync.Mutex
 	followMu      sync.Mutex
 	followKnown   bool
 	followEnabled bool
@@ -146,6 +150,8 @@ func (a *App) GetSettings() (Settings, error) {
 		EditorFont:  defaultEditorFont,
 	}
 
+	a.settingsMu.Lock()
+	defer a.settingsMu.Unlock()
 	data, err := os.ReadFile(a.settingsPath)
 	if errors.Is(err, os.ErrNotExist) {
 		a.setDebugMode(settings.DebugMode)
@@ -191,6 +197,8 @@ func (a *App) SaveSettings(settings Settings) (Settings, error) {
 	}
 	// Enable the native follower before writing, so an unavailable private
 	// API rejects the save instead of persisting a setting that cannot work.
+	a.settingsMu.Lock()
+	defer a.settingsMu.Unlock()
 	if err := a.setFollowDesktop(settings.FollowDesktop); err != nil {
 		return Settings{}, err
 	}
@@ -238,8 +246,8 @@ func (a *App) setFollowDesktop(enabled bool) error {
 		return nil
 	}
 	if a.desktop != nil {
-		if enabled && a.desktop.followUnavailable != "" {
-			return errors.New("follow macOS desktop is unavailable: " + a.desktop.followUnavailable)
+		if reason := a.desktop.followUnavailableReason(); enabled && reason != "" {
+			return errors.New("follow macOS desktop is unavailable: " + reason)
 		}
 		if a.desktop.follower != nil {
 			if err := a.desktop.follower.setEnabled(enabled); err != nil {

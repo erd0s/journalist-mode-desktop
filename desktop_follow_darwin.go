@@ -20,11 +20,19 @@ import (
 var desktopFollowerRef atomic.Pointer[desktopFollower]
 
 //export journalistDesktopSnapshot
-func journalistDesktopSnapshot(data *C.char) {
-	// Copy and return at once; AppKit is waiting on the main thread.
-	if follower := desktopFollowerRef.Load(); follower != nil && data != nil {
-		follower.submit([]byte(C.GoString(data)))
+func journalistDesktopSnapshot(data *C.char, baseline C.int) {
+	// Copy and return at once; AppKit is waiting on the main thread. A
+	// baseline (wake or display change) replaces the reference state instead
+	// of being followed.
+	follower := desktopFollowerRef.Load()
+	if follower == nil || data == nil {
+		return
 	}
+	if baseline != 0 {
+		follower.submitBaseline([]byte(C.GoString(data)))
+		return
+	}
+	follower.submit([]byte(C.GoString(data)))
 }
 
 func nativeDesktopSnapshot() ([]byte, error) {

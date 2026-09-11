@@ -11,6 +11,7 @@ export {
     DaySummary,
     DebugEvent,
     DebugFileSnapshot,
+    FollowDesktopStatus,
     JournalFile,
     SaveResult,
     Settings,

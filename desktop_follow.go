@@ -117,39 +117,39 @@ func currentDesktop(display displaySpaces, numbers map[uint64]int) (int, error) 
 	return 0, fmt.Errorf("display %s: current space %d is not in its space list", display.ID, display.Current)
 }
 
-// desktopChange reports the destination desktop when exactly one display's
-// current Space changed. A missing baseline, a changed display set, several
-// displays changing at once, or a full-screen destination is not a change.
-func desktopChange(previous, next *spaceSnapshot) (int, bool, error) {
+// desktopChange reports the display whose current Space changed and its new
+// desktop number. A missing baseline, a changed display set, several displays
+// changing at once, or a full-screen destination is not a change.
+func desktopChange(previous, next *spaceSnapshot) (display string, desktop int, changed bool, err error) {
 	if previous == nil || len(previous.Displays) != len(next.Displays) {
-		return 0, false, nil
+		return "", 0, false, nil
 	}
 	before := make(map[string]displaySpaces, len(previous.Displays))
-	for _, display := range previous.Displays {
-		before[display.ID] = display
+	for _, entry := range previous.Displays {
+		before[entry.ID] = entry
 	}
-	changed := -1
-	for index, display := range next.Displays {
-		earlier, known := before[display.ID]
+	index := -1
+	for position, entry := range next.Displays {
+		earlier, known := before[entry.ID]
 		if !known {
-			return 0, false, nil
+			return "", 0, false, nil
 		}
-		if earlier.Current == display.Current {
+		if earlier.Current == entry.Current {
 			continue
 		}
-		if changed >= 0 {
-			return 0, false, nil
+		if index >= 0 {
+			return "", 0, false, nil
 		}
-		changed = index
+		index = position
 	}
-	if changed < 0 {
-		return 0, false, nil
+	if index < 0 {
+		return "", 0, false, nil
 	}
-	desktop, err := currentDesktop(next.Displays[changed], desktopNumbers(*next))
+	desktop, err = currentDesktop(next.Displays[index], desktopNumbers(*next))
 	if err != nil {
-		return 0, false, err
+		return "", 0, false, err
 	}
-	return desktop, desktop > 0, nil
+	return next.Displays[index].ID, desktop, desktop > 0, nil
 }
 
 // desktopFollower turns Space snapshots into at most one desktop change per
@@ -160,12 +160,16 @@ type desktopFollower struct {
 	started  bool
 	wanted   bool
 	previous *spaceSnapshot
-	sequence uint64
-	latest   atomic.Pointer[[]byte]
-	signal   chan struct{}
-	snapshot func() ([]byte, error)
-	dispatch func(desktop int, sequence uint64)
-	report   func(err error)
+	// lastDesktop is the last numbered desktop seen per display, so leaving
+	// for a full-screen Space and returning to the same desktop is not a
+	// desktop change.
+	lastDesktop map[string]int
+	sequence    uint64
+	latest      atomic.Pointer[[]byte]
+	signal      chan struct{}
+	snapshot    func() ([]byte, error)
+	dispatch    func(desktop int, sequence uint64)
+	report      func(err error)
 }
 
 func newDesktopFollower(snapshot func() ([]byte, error), dispatch func(int, uint64), report func(error)) *desktopFollower {
@@ -208,13 +212,17 @@ func (f *desktopFollower) process() bool {
 		f.report(err)
 		return true
 	}
-	desktop, changed, err := desktopChange(f.previous, &snapshot)
+	display, desktop, changed, err := desktopChange(f.previous, &snapshot)
 	f.previous = &snapshot
 	if err != nil {
 		f.mu.Unlock()
 		f.report(err)
 		return true
 	}
+	if changed && f.lastDesktop[display] == desktop {
+		changed = false
+	}
+	f.noteDesktopsLocked(&snapshot)
 	if !changed {
 		f.mu.Unlock()
 		return true
@@ -226,6 +234,46 @@ func (f *desktopFollower) process() bool {
 	return true
 }
 
+// submitBaseline replaces the baseline with this snapshot without following
+// it. Waking from sleep and display changes use it, so a desktop that changed
+// while the Mac was asleep is not treated as a switch. It runs synchronously
+// because it must win over any snapshot still queued.
+func (f *desktopFollower) submitBaseline(data []byte) {
+	f.mu.Lock()
+	if !f.wanted {
+		f.mu.Unlock()
+		return
+	}
+	f.latest.Store(nil)
+	select {
+	case <-f.signal:
+	default:
+	}
+	snapshot, err := parseSpaceSnapshot(data)
+	if err != nil {
+		f.mu.Unlock()
+		f.report(err)
+		return
+	}
+	f.previous = &snapshot
+	f.lastDesktop = nil
+	f.noteDesktopsLocked(&snapshot)
+	f.mu.Unlock()
+}
+
+// noteDesktopsLocked remembers the numbered desktop each display shows.
+func (f *desktopFollower) noteDesktopsLocked(snapshot *spaceSnapshot) {
+	if f.lastDesktop == nil {
+		f.lastDesktop = make(map[string]int)
+	}
+	numbers := desktopNumbers(*snapshot)
+	for _, display := range snapshot.Displays {
+		if desktop, err := currentDesktop(display, numbers); err == nil && desktop > 0 {
+			f.lastDesktop[display.ID] = desktop
+		}
+	}
+}
+
 // setEnabled records the setting. Turning it on after the monitor started
 // takes a fresh baseline so the next switch is followed; turning it off drops
 // any queued change.
@@ -234,6 +282,7 @@ func (f *desktopFollower) setEnabled(enabled bool) error {
 	defer f.mu.Unlock()
 	f.wanted = enabled
 	f.previous = nil
+	f.lastDesktop = nil
 	f.latest.Store(nil)
 	select {
 	case <-f.signal:
@@ -265,21 +314,43 @@ func (f *desktopFollower) baselineLocked() error {
 		return err
 	}
 	f.previous = &snapshot
+	f.lastDesktop = nil
+	f.noteDesktopsLocked(&snapshot)
 	return nil
 }
 
+// FollowDesktopStatus tells the frontend whether the native Space observer is
+// usable, so Settings can explain an inactive switch.
+type FollowDesktopStatus struct {
+	Available bool   `json:"available"`
+	Reason    string `json:"reason"`
+}
+
+func (a *App) GetFollowDesktopStatus() FollowDesktopStatus {
+	if a.desktop == nil {
+		return FollowDesktopStatus{Reason: "window manager is not available"}
+	}
+	if reason := a.desktop.followUnavailableReason(); reason != "" {
+		return FollowDesktopStatus{Reason: reason}
+	}
+	return FollowDesktopStatus{Available: true}
+}
+
+func (d *Desktop) followUnavailableReason() string {
+	d.followErrorMu.Lock()
+	defer d.followErrorMu.Unlock()
+	return d.followUnavailable
+}
+
 // startDesktopFollow starts the native Space observer once the application is
-// running. A persisted enabled setting that cannot work is reported to every
-// window rather than ignored.
+// running. When it cannot start, GetFollowDesktopStatus carries the reason to
+// the Settings window and to day windows that have the setting on.
 func (d *Desktop) startDesktopFollow() {
 	if err := startNativeDesktopFollow(d); err != nil {
+		d.followErrorMu.Lock()
 		d.followUnavailable = err.Error()
+		d.followErrorMu.Unlock()
 		log.Printf("Follow macOS desktop unavailable: %v", err)
-		if settings, settingsErr := d.service.GetSettings(); settingsErr == nil && settings.FollowDesktop {
-			for _, window := range d.native.Window.GetAll() {
-				dispatchToWindow(window, "menu:error", "Follow macOS desktop is unavailable: "+err.Error())
-			}
-		}
 		return
 	}
 	go d.follower.run()
@@ -326,7 +397,9 @@ func (d *Desktop) dispatchDesktopChange(desktop int, sequence uint64) {
 }
 
 // reportDesktopError shows a Space observation failure once per distinct
-// message in today's window, or the current window when today is closed.
+// message in today's window, or in every window when today is closed. The
+// key window is usually another application's while this feature runs, so
+// Window.Current is not a useful target.
 func (d *Desktop) reportDesktopError(err error) {
 	message := "Follow macOS desktop: " + err.Error()
 	d.followErrorMu.Lock()
@@ -337,11 +410,11 @@ func (d *Desktop) reportDesktopError(err error) {
 	if repeated {
 		return
 	}
-	window := desktopChangeTarget(d.native.Window.GetAll(), localToday())
-	if window == nil {
-		window = d.native.Window.Current()
+	windows := d.native.Window.GetAll()
+	if today := desktopChangeTarget(windows, localToday()); today != nil {
+		windows = []application.Window{today}
 	}
-	if window != nil {
+	for _, window := range windows {
 		dispatchToWindow(window, "menu:error", message)
 	}
 }
