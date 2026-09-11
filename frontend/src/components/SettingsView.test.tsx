@@ -3,7 +3,7 @@
 import {act} from 'react-dom/test-utils';
 import {createRoot, Root} from 'react-dom/client';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {Settings} from '../api';
+import {appAPI, Settings} from '../api';
 import {SettingsView} from './SettingsView';
 
 describe('SettingsView debug mode', () => {
@@ -21,6 +21,7 @@ describe('SettingsView debug mode', () => {
     afterEach(async () => {
         await act(async () => root.unmount());
         host.remove();
+        vi.restoreAllMocks();
     });
 
     it('persists the opt-in and exposes the local log folder', async () => {
@@ -56,5 +57,75 @@ describe('SettingsView debug mode', () => {
             .find(button => button.textContent === 'Show logs')!;
         await act(async () => showLogs.click());
         expect(onOpenDebugFolder).toHaveBeenCalledOnce();
+    });
+
+    it('persists the follow-desktop opt-in with its explanation', async () => {
+        vi.spyOn(appAPI, 'getFollowDesktopStatus').mockResolvedValue({available: true, reason: ''});
+        const onSave = vi.fn(async () => undefined);
+        await act(async () => {
+            root.render(
+                <SettingsView
+                    settings={{storageRoot: '/journal', editorFont: 'system', debugMode: false, followDesktop: false} as Settings}
+                    debugLogDirectory="/private/debug"
+                    onBack={vi.fn()}
+                    onBrowse={vi.fn(async () => '')}
+                    onOpenDebugFolder={vi.fn(async () => undefined)}
+                    onSave={onSave}
+                />,
+            );
+        });
+        const follow = host.querySelector<HTMLInputElement>('[aria-label="Follow macOS desktop"]')!;
+        expect(follow.checked).toBe(false);
+        expect(host.textContent).toContain('Automatically select and zoom the Doing stream matching the desktop you switch to.');
+        await act(async () => follow.click());
+        const save = [...host.querySelectorAll<HTMLButtonElement>('button')]
+            .find(button => button.textContent === 'Save settings')!;
+        await act(async () => save.click());
+        expect(onSave).toHaveBeenCalledWith(expect.objectContaining({followDesktop: true, debugMode: false}));
+    });
+
+    it('disables the follow-desktop switch and shows the reason when the native monitor is unavailable', async () => {
+        vi.spyOn(appAPI, 'getFollowDesktopStatus').mockResolvedValue({available: false, reason: 'SkyLight does not export SLSCopyManagedDisplaySpaces'});
+        await act(async () => {
+            root.render(
+                <SettingsView
+                    settings={{storageRoot: '/journal', editorFont: 'system', debugMode: false, followDesktop: false} as Settings}
+                    debugLogDirectory="/private/debug"
+                    onBack={vi.fn()}
+                    onBrowse={vi.fn(async () => '')}
+                    onOpenDebugFolder={vi.fn(async () => undefined)}
+                    onSave={vi.fn(async () => undefined)}
+                />,
+            );
+        });
+        const follow = host.querySelector<HTMLInputElement>('[aria-label="Follow macOS desktop"]')!;
+        expect(follow.disabled).toBe(true);
+        expect(host.textContent).toContain('SLSCopyManagedDisplaySpaces');
+    });
+
+    it('still lets a persisted opt-in be turned off when the native monitor is unavailable', async () => {
+        vi.spyOn(appAPI, 'getFollowDesktopStatus').mockResolvedValue({available: false, reason: 'SkyLight does not export SLSCopyManagedDisplaySpaces'});
+        const onSave = vi.fn(async () => undefined);
+        await act(async () => {
+            root.render(
+                <SettingsView
+                    settings={{storageRoot: '/journal', editorFont: 'system', debugMode: false, followDesktop: true} as Settings}
+                    debugLogDirectory="/private/debug"
+                    onBack={vi.fn()}
+                    onBrowse={vi.fn(async () => '')}
+                    onOpenDebugFolder={vi.fn(async () => undefined)}
+                    onSave={onSave}
+                />,
+            );
+        });
+        const follow = host.querySelector<HTMLInputElement>('[aria-label="Follow macOS desktop"]')!;
+        expect(follow.checked).toBe(true);
+        expect(follow.disabled).toBe(false);
+        await act(async () => follow.click());
+        expect(follow.disabled).toBe(true);
+        const save = [...host.querySelectorAll<HTMLButtonElement>('button')]
+            .find(button => button.textContent === 'Save settings')!;
+        await act(async () => save.click());
+        expect(onSave).toHaveBeenCalledWith(expect.objectContaining({followDesktop: false}));
     });
 });

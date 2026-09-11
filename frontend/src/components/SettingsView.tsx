@@ -21,6 +21,8 @@ export function SettingsView({
 }: SettingsProps) {
     const [storageRoot, setStorageRoot] = useState(settings.storageRoot);
     const [debugMode, setDebugMode] = useState(settings.debugMode);
+    const [followDesktop, setFollowDesktop] = useState(settings.followDesktop);
+    const [followStatus, setFollowStatus] = useState<{available: boolean; reason: string} | null>(null);
     const [saving, setSaving] = useState(false);
     const [version, setVersion] = useState('');
     const [automaticChecks, setAutomaticChecks] = useState(false);
@@ -34,6 +36,12 @@ export function SettingsView({
 
     useEffect(() => setStorageRoot(settings.storageRoot), [settings.storageRoot]);
     useEffect(() => setDebugMode(settings.debugMode), [settings.debugMode]);
+    useEffect(() => setFollowDesktop(settings.followDesktop), [settings.followDesktop]);
+    useEffect(() => {
+        appAPI.getFollowDesktopStatus()
+            .then(setFollowStatus)
+            .catch(reason => setFollowStatus({available: false, reason: String(reason)}));
+    }, []);
 
     const browse = async () => {
         const selected = await onBrowse();
@@ -46,7 +54,7 @@ export function SettingsView({
         setSaving(true);
         try {
             await appAPI.setAutomaticUpdateChecks(automaticChecks);
-            await onSave({...settings, storageRoot, debugMode});
+            await onSave({...settings, storageRoot, debugMode, followDesktop});
         } finally {
             setSaving(false);
         }
@@ -113,6 +121,31 @@ export function SettingsView({
                             Show logs
                         </button>
                     </div>
+                </div>
+
+                <div className="settings-card debug-settings-card">
+                    <label className="debug-toggle">
+                        <span className="setting-label debug-setting-label">
+                            <span>
+                                <strong>Follow macOS desktop</strong>
+                                <small>Automatically select and zoom the Doing stream matching the desktop you switch to.</small>
+                            </span>
+                        </span>
+                        <span className="switch-control">
+                            <input
+                                type="checkbox"
+                                aria-label="Follow macOS desktop"
+                                checked={followDesktop}
+                                disabled={followStatus !== null && !followStatus.available && !followDesktop}
+                                onChange={event => setFollowDesktop(event.target.checked)}
+                            />
+                            <span aria-hidden="true"/>
+                        </span>
+                    </label>
+                    <p className="setting-note">Desktop 1 shows the first Doing stream and Desktop N shows stream N in today's journal window. Journalist Mode stays in the background, so the app you switch to keeps the keyboard.</p>
+                    {followStatus && !followStatus.available && (
+                        <p role="alert">Following desktops is unavailable on this Mac: {followStatus.reason}</p>
+                    )}
                 </div>
 
                 <div className="settings-card">

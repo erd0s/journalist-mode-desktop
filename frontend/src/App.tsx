@@ -40,19 +40,27 @@ export default function App() {
     const settingsReturnScreen = useRef<Screen>('welcome');
     const closeSaveRevision = useRef(0);
     const workspaceSaveStateRef = useRef<WorkspaceSaveState>('saved');
+    const lastDesktopSequence = useRef(0);
+    const pendingDesktop = useRef<number | null>(null);
+    // The setting is mirrored in a ref and updated synchronously by
+    // settings:changed, so an event already in flight when the setting turns
+    // off cannot apply through a stale render closure. null means unknown.
+    const followDesktopRef = useRef<boolean | null>(null);
 
     const handleWorkspaceSaveStateChange = useCallback((state: WorkspaceSaveState) => {
         workspaceSaveStateRef.current = state;
         setWorkspaceSaveState(state);
     }, []);
 
-    const loadWelcome = async () => {
+    const loadWelcome = async (): Promise<Settings> => {
         const [nextSettings, nextDays] = await Promise.all([
             appAPI.getSettings(),
             appAPI.listDays(),
         ]);
         setSettings(nextSettings);
+        followDesktopRef.current = nextSettings.followDesktop;
         setDays(nextDays ?? []);
+        return nextSettings;
     };
 
     const showDay = (day: DayData) => {
@@ -137,6 +145,12 @@ export default function App() {
         }));
     };
 
+    // A desktop change must not interrupt a modal prompt or a quit. The
+    // latest target waits until that flow ends. The workspace is inert while
+    // a modal shows, so no manual choice can be overridden by the deferral.
+    const followBlocked = () => dayPickerOpen || closePrompt !== null || shortcutsOpen
+        || quitRequestRef.current !== null;
+
     const cancelQuitOrClose = () => {
         const request = quitRequestRef.current;
         if (request) {
@@ -201,10 +215,16 @@ export default function App() {
                 setScreen('settings');
                 return;
             }
-            await loadWelcome();
+            const launchSettings = await loadWelcome();
             const launchDate = await appAPI.getLaunchDate();
             if (launchDate) {
                 showDay(await appAPI.openDay(launchDate));
+                if (launchSettings.followDesktop) {
+                    const status = await appAPI.getFollowDesktopStatus();
+                    if (!status.available) {
+                        setError(`Follow macOS desktop is unavailable: ${status.reason}`);
+                    }
+                }
             }
         };
 
@@ -265,9 +285,24 @@ export default function App() {
             const editorFont = String(event.data);
             setSettings(current => current ? {...current, editorFont} as Settings : current);
         });
+        const stopDesktop = Events.On('desktop:changed', event => {
+            const data = event.data as {desktop: number; sequence: number};
+            if (!(data.sequence > lastDesktopSequence.current)) return;
+            lastDesktopSequence.current = data.sequence;
+            if (followDesktopRef.current === false) return;
+            // Keep the latest target while today's window is still opening or
+            // a modal flow is showing; the effect below applies it once it can.
+            if (followDesktopRef.current === null || screen !== 'day' || followBlocked()) {
+                pendingDesktop.current = data.desktop;
+                return;
+            }
+            requestWorkspaceAction({type: 'focus-doing-zoomed', streamIndex: data.desktop});
+        });
         const stopSettingsChanged = Events.On('settings:changed', event => {
             const changed = event.data as Settings;
+            followDesktopRef.current = changed.followDesktop;
             setSettings(changed);
+            if (!changed.followDesktop) pendingDesktop.current = null;
             if (screen === 'welcome') {
                 void appAPI.listDays()
                     .then(nextDays => setDays(nextDays ?? []))
@@ -296,6 +331,7 @@ export default function App() {
             stopMoveFocus();
             stopTogglePaneZoom();
             stopFont();
+            stopDesktop();
             stopSettingsChanged();
             stopError();
             stopClose();
@@ -370,6 +406,18 @@ export default function App() {
     });
 
     useEffect(() => {
+        if (pendingDesktop.current === null || screen !== 'day' || dayPickerOpen || closePrompt
+            || shortcutsOpen || quitRequest) {
+            return;
+        }
+        const desktop = pendingDesktop.current;
+        pendingDesktop.current = null;
+        if (followDesktopRef.current) {
+            requestWorkspaceAction({type: 'focus-doing-zoomed', streamIndex: desktop});
+        }
+    }, [closePrompt, dayPickerOpen, quitRequest, screen, settings, shortcutsOpen]);
+
+    useEffect(() => {
         if (closePrompt !== 'waiting' || workspaceSaveState === 'saving') {
             return;
         }
@@ -410,6 +458,7 @@ export default function App() {
     const saveSettings = async (nextSettings: Settings) => {
         try {
             const saved = await appAPI.saveSettings(nextSettings);
+            followDesktopRef.current = saved.followDesktop;
             setSettings(saved);
             setError('');
             if (settingsWindow && appAPI.isNative()) {

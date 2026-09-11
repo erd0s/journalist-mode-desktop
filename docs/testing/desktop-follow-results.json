@@ -1,0 +1,680 @@
+{
+  "issue": 26,
+  "date": "2026-09-11",
+  "platform": "macOS 26.6.2 (25G83), Apple Silicon, one display (2560x1440), Displays have separate Spaces on, nine desktops",
+  "sourceCommit": "dac4dba",
+  "testBundle": {
+    "path": "~/Dev/journalist-mode-follow-desktop/build/bin/Journalist Mode.app",
+    "signature": "ad-hoc",
+    "executableSha256": "6331528808e07bc48a1298f72201aa5f98f9dda3531ce97eafc510ab44acbfc1"
+  },
+  "automated": {
+    "goRaceTests": "pass (16 new desktop-follow tests)",
+    "frontendTests": 106,
+    "productionBuild": "pass",
+    "publisherTests": 2
+  },
+  "method": {
+    "observation": "Pane visibility read from the journal window accessibility tree (hidden panes are absent); foreground application and window order from NSWorkspace and the on-screen window list; desktop changes delivered from the opt-in flight recorder; Space state from SLSCopyManagedDisplaySpaces in a separate probe; fixture file hashes before and after.",
+    "input": "Desktop switches by Control-number shortcuts through System Events at 0.6 to 0.9 s spacing, one switch by pressing a Mission Control Spaces bar button, Settings toggled through its own window, TextEdit as the foreground application.",
+    "allDesktops": "Both the journal window and TextEdit were assigned to All Desktops through the Dock menu, because accessibility exposes a window only on its current Space and macOS activates the only app with a window on an otherwise empty desktop. This also stands in for a Journalist Mode window visible on another monitor while working elsewhere. Both assignments were reverted afterwards.",
+    "fixtures": "Scratch journal root with today's Todo and Doing streams 1, 2, 4, 7 and 10; settings.json swapped for the run and restored; a tenth desktop added through Mission Control for the Desktop 10 case and removed afterwards."
+  },
+  "nativeCases": [
+    {
+      "test": "fixture-launch",
+      "status": "pass",
+      "time": "2026-09-11T21:55:59",
+      "pid": 59687,
+      "executable": "~/Dev/journalist-mode-follow-desktop/build/bin/Journalist Mode.app/Contents/MacOS/Journalist Mode",
+      "visible": [
+        "2026-09-11.jm.md",
+        "2026-09-11.jmtodo.md",
+        "2026-09-11_10.jm.md",
+        "2026-09-11_2.jm.md",
+        "2026-09-11_4.jm.md",
+        "2026-09-11_7.jm.md"
+      ],
+      "desktop": 1
+    },
+    {
+      "test": "window-on-all-desktops",
+      "status": "pass",
+      "time": "2026-09-11T21:56:03",
+      "visible": [
+        "2026-09-11.jm.md",
+        "2026-09-11.jmtodo.md",
+        "2026-09-11_10.jm.md",
+        "2026-09-11_2.jm.md",
+        "2026-09-11_4.jm.md",
+        "2026-09-11_7.jm.md"
+      ],
+      "jm": {
+        "active": true,
+        "hidden": false,
+        "minimised": [
+          false
+        ],
+        "windowCount": 1,
+        "onscreen": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false
+        ]
+      }
+    },
+    {
+      "test": "textedit-stays-frontmost-across-desktops",
+      "status": "pass",
+      "time": "2026-09-11T21:56:10",
+      "frontmost": "TextEdit",
+      "zorder": [
+        [
+          "TextEdit",
+          "foreground.txt"
+        ],
+        [
+          "Journalist Mode",
+          "Friday, 11 September 2026 \u2014 Journalist Mode"
+        ]
+      ],
+      "attempts": 1
+    },
+    {
+      "test": "disabled-switch-unchanged",
+      "status": "pass",
+      "time": "2026-09-11T21:56:15",
+      "visible": [
+        "2026-09-11.jm.md",
+        "2026-09-11.jmtodo.md",
+        "2026-09-11_10.jm.md",
+        "2026-09-11_2.jm.md",
+        "2026-09-11_4.jm.md",
+        "2026-09-11_7.jm.md"
+      ],
+      "desktopEvents": 0,
+      "frontmost": "TextEdit"
+    },
+    {
+      "test": "enable-without-restart",
+      "status": "pass",
+      "time": "2026-09-11T21:56:19",
+      "settings": {
+        "storageRoot": "~/Dev/journalist-mode-desktop/tmp/follow-desktop/journal",
+        "editorFont": "avenir-next-condensed",
+        "debugMode": true,
+        "followDesktop": true
+      },
+      "visible": [
+        "2026-09-11.jm.md",
+        "2026-09-11.jmtodo.md",
+        "2026-09-11_10.jm.md",
+        "2026-09-11_2.jm.md",
+        "2026-09-11_4.jm.md",
+        "2026-09-11_7.jm.md"
+      ]
+    },
+    {
+      "test": "switch-1-to-4-zooms-stream-4",
+      "status": "pass",
+      "time": "2026-09-11T21:56:21",
+      "visible": [
+        "2026-09-11_4.jm.md"
+      ],
+      "frontmost": "TextEdit",
+      "jm": {
+        "active": false,
+        "hidden": false,
+        "minimised": [
+          false
+        ],
+        "windowCount": 1,
+        "onscreen": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      "zorder": [
+        [
+          "TextEdit",
+          "foreground.txt"
+        ],
+        [
+          "Journalist Mode",
+          "Friday, 11 September 2026 \u2014 Journalist Mode"
+        ]
+      ]
+    },
+    {
+      "test": "switch-4-to-7-switches-zoom",
+      "status": "pass",
+      "time": "2026-09-11T21:56:22",
+      "visible": [
+        "2026-09-11_7.jm.md"
+      ],
+      "frontmost": "TextEdit",
+      "jm": {
+        "active": false,
+        "hidden": false,
+        "minimised": [
+          false
+        ],
+        "windowCount": 1,
+        "onscreen": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      "zorder": [
+        [
+          "TextEdit",
+          "foreground.txt"
+        ],
+        [
+          "Journalist Mode",
+          "Friday, 11 September 2026 \u2014 Journalist Mode"
+        ]
+      ]
+    },
+    {
+      "test": "flight-recorder-desktop-events",
+      "status": "pass",
+      "time": "2026-09-11T21:56:22",
+      "events": [
+        {
+          "date": "2026-09-11",
+          "delivered": "true",
+          "desktop": "4"
+        },
+        {
+          "date": "2026-09-11",
+          "delivered": "true",
+          "desktop": "7"
+        }
+      ]
+    },
+    {
+      "test": "desktop-1-unsuffixed-and-foreground-kept",
+      "status": "pass",
+      "time": "2026-09-11T21:56:24",
+      "visible": [
+        "2026-09-11.jm.md"
+      ],
+      "frontmost": "TextEdit",
+      "jm": {
+        "active": false,
+        "hidden": false,
+        "minimised": [
+          false
+        ],
+        "windowCount": 1,
+        "onscreen": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      "zorder": [
+        [
+          "TextEdit",
+          "foreground.txt"
+        ],
+        [
+          "Journalist Mode",
+          "Friday, 11 September 2026 \u2014 Journalist Mode"
+        ],
+        [
+          "cmux",
+          "journalist-mode-desktop"
+        ],
+        [
+          "Superwhisper",
+          ""
+        ]
+      ]
+    },
+    {
+      "test": "missing-stream-9-unchanged",
+      "status": "pass",
+      "time": "2026-09-11T21:56:26",
+      "visible": [
+        "2026-09-11.jm.md"
+      ],
+      "lastEvent": {
+        "date": "2026-09-11",
+        "delivered": "true",
+        "desktop": "9"
+      }
+    },
+    {
+      "test": "manual-unzoom-survives-mission-control-open-close",
+      "status": "pass",
+      "time": "2026-09-11T21:56:33",
+      "visible": [
+        "2026-09-11.jm.md",
+        "2026-09-11.jmtodo.md",
+        "2026-09-11_10.jm.md",
+        "2026-09-11_2.jm.md",
+        "2026-09-11_4.jm.md",
+        "2026-09-11_7.jm.md"
+      ]
+    },
+    {
+      "test": "next-actual-change-rezooms",
+      "status": "pass",
+      "time": "2026-09-11T21:56:34",
+      "visible": [
+        "2026-09-11_4.jm.md"
+      ]
+    },
+    {
+      "test": "rapid-4-7-2-ends-on-2",
+      "status": "pass",
+      "time": "2026-09-11T21:56:36",
+      "visible": [
+        "2026-09-11_2.jm.md"
+      ],
+      "events": [
+        "7",
+        "2"
+      ]
+    },
+    {
+      "test": "unsaved-text-and-files-preserved",
+      "status": "pass",
+      "time": "2026-09-11T21:56:41",
+      "textAreaHasProbe": true,
+      "filesUnchanged": true,
+      "saveStates": [
+        "Unsaved changes"
+      ]
+    },
+    {
+      "test": "minimised-window-stays-minimised-then-updates",
+      "status": "pass",
+      "time": "2026-09-11T21:56:48",
+      "whileMinimised": {
+        "active": false,
+        "hidden": false,
+        "minimised": [
+          true
+        ],
+        "windowCount": 1,
+        "onscreen": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      "visibleAfter": [
+        "2026-09-11_4.jm.md"
+      ]
+    },
+    {
+      "test": "hidden-app-stays-hidden-then-updates",
+      "status": "pass",
+      "time": "2026-09-11T21:56:53",
+      "whileHidden": {
+        "active": false,
+        "hidden": true,
+        "minimised": [
+          false
+        ],
+        "windowCount": 1,
+        "onscreen": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      "visibleAfter": [
+        "2026-09-11_7.jm.md"
+      ]
+    },
+    {
+      "test": "disabled-again-unchanged",
+      "status": "pass",
+      "time": "2026-09-11T21:56:59",
+      "visible": [
+        "2026-09-11_7.jm.md"
+      ]
+    },
+    {
+      "test": "re-enabled-without-restart",
+      "status": "pass",
+      "time": "2026-09-11T21:57:03",
+      "visible": [
+        "2026-09-11_2.jm.md"
+      ]
+    },
+    {
+      "test": "full-screen-space-ignored",
+      "status": "pass",
+      "time": "2026-09-11T21:57:07",
+      "spaces": {
+        "currentSpace": 374,
+        "currentLabel": "type4",
+        "desktop": 0,
+        "labels": [
+          "Desktop1",
+          "Desktop2",
+          "Desktop3",
+          "Desktop4",
+          "Desktop5",
+          "Desktop6",
+          "Desktop7",
+          "Desktop8",
+          "Desktop9",
+          "type4"
+        ]
+      },
+      "desktopEventsBefore": 16,
+      "desktopEventsAfter": 16
+    },
+    {
+      "test": "mission-control-labels-match-numbering",
+      "status": "pass",
+      "time": "2026-09-11T21:57:10",
+      "dockLabels": [
+        "Desktop 1",
+        "Desktop 2",
+        "Desktop 3",
+        "Desktop 4",
+        "Desktop 5",
+        "Desktop 6",
+        "Desktop 7",
+        "Desktop 8",
+        "Desktop 9",
+        "TextEdit",
+        "add desktop"
+      ],
+      "expected": [
+        "Desktop 1",
+        "Desktop 2",
+        "Desktop 3",
+        "Desktop 4",
+        "Desktop 5",
+        "Desktop 6",
+        "Desktop 7",
+        "Desktop 8",
+        "Desktop 9",
+        "TextEdit"
+      ]
+    },
+    {
+      "test": "back-from-full-screen-same-desktop-unchanged",
+      "status": "pass",
+      "time": "2026-09-11T21:57:12",
+      "visible": [
+        "2026-09-11.jm.md"
+      ],
+      "spaces": {
+        "currentSpace": 3,
+        "currentLabel": "Desktop1",
+        "desktop": 1,
+        "labels": [
+          "Desktop1",
+          "Desktop2",
+          "Desktop3",
+          "Desktop4",
+          "Desktop5",
+          "Desktop6",
+          "Desktop7",
+          "Desktop8",
+          "Desktop9"
+        ]
+      },
+      "desktopEvents": 16
+    },
+    {
+      "test": "manual-unzoom-survives-full-screen-round-trip",
+      "status": "pass",
+      "time": "2026-09-11T21:57:18",
+      "visible": [
+        "2026-09-11.jm.md",
+        "2026-09-11.jmtodo.md",
+        "2026-09-11_10.jm.md",
+        "2026-09-11_2.jm.md",
+        "2026-09-11_4.jm.md",
+        "2026-09-11_7.jm.md"
+      ]
+    },
+    {
+      "test": "mission-control-click-switch",
+      "status": "pass",
+      "time": "2026-09-11T21:57:20",
+      "visible": [
+        "2026-09-11_4.jm.md"
+      ],
+      "frontmost": "TextEdit"
+    },
+    {
+      "test": "desktop-10-selects-stream-10",
+      "status": "pass",
+      "time": "2026-09-11T21:57:26",
+      "visible": [
+        "2026-09-11_10.jm.md"
+      ],
+      "spaces": {
+        "currentSpace": 391,
+        "currentLabel": "Desktop10",
+        "desktop": 10,
+        "labels": [
+          "Desktop1",
+          "Desktop2",
+          "Desktop3",
+          "Desktop4",
+          "Desktop5",
+          "Desktop6",
+          "Desktop7",
+          "Desktop8",
+          "Desktop9",
+          "Desktop10"
+        ]
+      }
+    },
+    {
+      "test": "all-desktops-assignment-reverted",
+      "status": "pass",
+      "time": "2026-09-11T21:57:28",
+      "app": "Journalist Mode"
+    },
+    {
+      "test": "all-desktops-assignment-reverted",
+      "status": "pass",
+      "time": "2026-09-11T21:57:30",
+      "app": "TextEdit"
+    },
+    {
+      "test": "tenth-desktop-left-in-place",
+      "status": "pass",
+      "time": "2026-09-11T21:57:36",
+      "labels": [
+        "Desktop1",
+        "Desktop2",
+        "Desktop3",
+        "Desktop4",
+        "Desktop5",
+        "Desktop6",
+        "Desktop7",
+        "Desktop8",
+        "Desktop9",
+        "Desktop10"
+      ]
+    }
+  ],
+  "flightRecorderDesktopEvents": [
+    {
+      "time": "2026-09-11T20:56:20.085381Z",
+      "desktop": "4",
+      "delivered": "true",
+      "sequence": 1
+    },
+    {
+      "time": "2026-09-11T20:56:21.661805Z",
+      "desktop": "7",
+      "delivered": "true",
+      "sequence": 2
+    },
+    {
+      "time": "2026-09-11T20:56:23.272674Z",
+      "desktop": "1",
+      "delivered": "true",
+      "sequence": 3
+    },
+    {
+      "time": "2026-09-11T20:56:24.85759Z",
+      "desktop": "9",
+      "delivered": "true",
+      "sequence": 4
+    },
+    {
+      "time": "2026-09-11T20:56:27.075721Z",
+      "desktop": "7",
+      "delivered": "true",
+      "sequence": 5
+    },
+    {
+      "time": "2026-09-11T20:56:33.864542Z",
+      "desktop": "4",
+      "delivered": "true",
+      "sequence": 6
+    },
+    {
+      "time": "2026-09-11T20:56:35.263034Z",
+      "desktop": "7",
+      "delivered": "true",
+      "sequence": 7
+    },
+    {
+      "time": "2026-09-11T20:56:36.131867Z",
+      "desktop": "2",
+      "delivered": "true",
+      "sequence": 8
+    },
+    {
+      "time": "2026-09-11T20:56:39.620211Z",
+      "desktop": "4",
+      "delivered": "true",
+      "sequence": 9
+    },
+    {
+      "time": "2026-09-11T20:56:40.787652Z",
+      "desktop": "7",
+      "delivered": "true",
+      "sequence": 10
+    },
+    {
+      "time": "2026-09-11T20:56:42.280122Z",
+      "desktop": "1",
+      "delivered": "true",
+      "sequence": 11
+    },
+    {
+      "time": "2026-09-11T20:56:45.439982Z",
+      "desktop": "4",
+      "delivered": "true",
+      "sequence": 12
+    },
+    {
+      "time": "2026-09-11T20:56:48.571142Z",
+      "desktop": "1",
+      "delivered": "true",
+      "sequence": 13
+    },
+    {
+      "time": "2026-09-11T20:56:51.373167Z",
+      "desktop": "7",
+      "delivered": "true",
+      "sequence": 14
+    },
+    {
+      "time": "2026-09-11T20:57:02.718015Z",
+      "desktop": "2",
+      "delivered": "true",
+      "sequence": 15
+    },
+    {
+      "time": "2026-09-11T20:57:04.116985Z",
+      "desktop": "1",
+      "delivered": "true",
+      "sequence": 16
+    },
+    {
+      "time": "2026-09-11T20:57:20.264936Z",
+      "desktop": "4",
+      "delivered": "true",
+      "sequence": 17
+    },
+    {
+      "time": "2026-09-11T20:57:25.084969Z",
+      "desktop": "10",
+      "delivered": "true",
+      "sequence": 18
+    },
+    {
+      "time": "2026-09-11T20:57:31.306081Z",
+      "desktop": "1",
+      "delivered": "true",
+      "sequence": 19
+    },
+    {
+      "time": "2026-09-11T20:57:36.631733Z",
+      "desktop": "10",
+      "delivered": "true",
+      "sequence": 20
+    }
+  ],
+  "notVerified": [
+    "Desktop numbering across several displays and with Displays have separate Spaces turned off (one display attached; a logout would be needed).",
+    "Trackpad gesture switching (cannot be synthesised; it posts the same Space-change notification as the shortcuts and Mission Control click that were tested).",
+    "A Journalist Mode window on a physically separate monitor (approximated with the All Desktops assignment)."
+  ],
+  "harnessCorrections": [
+    "Accessibility returns only the menu bar for a window on another Space or while a full-screen Space is active; visibility checks moved to the current Space or to the flight recorder.",
+    "macOS itself activates the only app with a window on an empty destination desktop; the foreground app had to be present on every desktop for the activation check to mean anything.",
+    "The Dock exposes Spaces bar buttons with the label in AXTitle (Desktop N, TextEdit) and an action phrase in AXDescription (exit to Desktop N).",
+    "An Apple Events permission prompt for TextEdit blocked the first run; the harness switched to LaunchServices for activation and was left unanswered, so no permission was granted or denied."
+  ],
+  "restore": {
+    "settingsRestored": true,
+    "realJournalFilesChanged": 0,
+    "desktopsAfter": 9,
+    "finalDesktop": 1,
+    "allDesktopsAssignmentsReverted": true,
+    "debugLogsOfTheRunMovedToLocalEvidence": true,
+    "tenthDesktopRemoval": "removed through Mission Control after the run (the harness cleanup cannot see the close control; a hover on the expanded Spaces bar followed by a click on the tile corner removes it)"
+  },
+  "earlierRun": {
+    "sourceCommit": "1ddb743",
+    "executableSha256": "53641e3c844d46d133b60c67d001469823f39673aaa38714c5be7832d8ce8e05",
+    "result": "same 24 cases passed before the code-review fixes; this file records the run on the fixed build"
+  },
+  "notarizedPackage": {
+    "path": "~/Dev/journalist-mode-follow-desktop/build/bin/Journalist Mode.app",
+    "sourceCommit": "dac4dba",
+    "executableSha256": "b833fa09647ea7593f2af0b39e2e85f630bb5a7aada43a84b90088ef4ad5bb1b",
+    "signature": "Notarized Developer ID, stapled",
+    "version": "0.7.0 (no version bump; not installed and not released)"
+  }
+}

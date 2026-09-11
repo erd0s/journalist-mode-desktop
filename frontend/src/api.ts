@@ -9,6 +9,7 @@ import {
     CreateDoingStream as nativeCreateDoingStream,
     CreateToday as nativeCreateToday,
     GetDebugLogDirectory as nativeGetDebugLogDirectory,
+    GetFollowDesktopStatus as nativeGetFollowDesktopStatus,
     GetSettings as nativeGetSettings,
     ListDays as nativeListDays,
     OpenDay as nativeOpenDay,
@@ -23,6 +24,7 @@ import {
 import * as main from '../bindings/journalist-mode-desktop/models';
 
 export type Settings = main.Settings;
+export type FollowDesktopStatus = main.FollowDesktopStatus;
 export type DebugEvent = main.DebugEvent;
 export type DebugFileSnapshot = main.DebugFileSnapshot;
 export type DaySummary = main.DaySummary;
@@ -47,6 +49,7 @@ let mockSettings = new main.Settings({
     storageRoot: '~/Documents/JM',
     editorFont: 'avenir-next-condensed',
     debugMode: false,
+    followDesktop: false,
 });
 let mockDay = new main.DayData({
     date: '2026-08-28',
@@ -129,6 +132,12 @@ export const appAPI = {
 
     async getSettings(): Promise<Settings> {
         return isNative() ? nativeGetSettings() : mockSettings;
+    },
+
+    async getFollowDesktopStatus(): Promise<FollowDesktopStatus> {
+        return isNative()
+            ? nativeGetFollowDesktopStatus()
+            : new main.FollowDesktopStatus({available: false, reason: 'Following desktops needs the desktop app.'});
     },
 
     async saveSettings(settings: Settings): Promise<Settings> {

@@ -362,6 +362,19 @@ export function DayWorkspace({
         return path ? focusPath(path) : false;
     }, [doingFiles, focusPath]);
 
+    // Following a desktop assigns the zoom rather than toggling it, so a
+    // repeated event for the same desktop keeps the pane zoomed.
+    const focusDoingZoomed = useCallback((streamIndex: number): boolean => {
+        const path = doingFiles.find(file => file.streamIndex === streamIndex)?.path;
+        if (!path) {
+            return false;
+        }
+        setFocusedPath(path);
+        setZoomedPath(path);
+        setEditorFocus(current => ({path, revision: current.revision + 1}));
+        return true;
+    }, [doingFiles]);
+
     const visiblePaths = useMemo(
         () => [...(todoVisible ? [day.todo.path] : []), ...doingFiles.map(file => file.path)],
         [day.todo.path, doingFiles, todoVisible],
@@ -450,6 +463,9 @@ export function DayWorkspace({
             case 'focus-doing':
                 handled = focusDoing(action.streamIndex);
                 break;
+            case 'focus-doing-zoomed':
+                handled = focusDoingZoomed(action.streamIndex);
+                break;
             case 'move-focus':
                 handled = moveFocus(action.delta);
                 break;
@@ -474,6 +490,7 @@ export function DayWorkspace({
         return handled;
     }, [
         focusDoing,
+        focusDoingZoomed,
         moveFocus,
         recordDebug,
         toggleAllDoingHistory,

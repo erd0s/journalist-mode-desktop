@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
@@ -406,5 +408,121 @@ func TestEditorFontValidation(t *testing.T) {
 	app := newAppForPaths(t.TempDir(), filepath.Join(t.TempDir(), "settings.json"))
 	if _, err := app.SetEditorFont("comic-sans"); err == nil {
 		t.Fatal("SetEditorFont accepted an unknown font")
+	}
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func TestFollowDesktopSettingPersistsAndDefaultsOff(t *testing.T) {
+	home := t.TempDir()
+	config := filepath.Join(t.TempDir(), "settings.json")
+	app := newAppForPaths(home, config)
+	settings, err := app.GetSettings()
+	if err != nil || settings.FollowDesktop {
+		t.Fatalf("follow desktop must default to off: %#v %v", settings, err)
+	}
+	settings.StorageRoot = filepath.Join(t.TempDir(), "journal")
+	settings.FollowDesktop = true
+	if _, err := app.SaveSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := newAppForPaths(home, config).GetSettings()
+	if err != nil || !reloaded.FollowDesktop {
+		t.Fatalf("follow desktop was not persisted: %#v %v", reloaded, err)
+	}
+	if !strings.Contains(string(mustRead(t, config)), `"followDesktop": true`) {
+		t.Fatal("settings.json must store followDesktop")
+	}
+}
+
+func TestFollowDesktopCannotBeEnabledWhenUnavailable(t *testing.T) {
+	app := newAppForPaths(t.TempDir(), filepath.Join(t.TempDir(), "settings.json"))
+	saved, err := app.SaveSettings(Settings{StorageRoot: filepath.Join(t.TempDir(), "journal")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := mustRead(t, app.settingsPath)
+	app.desktop = &Desktop{service: app, followUnavailable: "SkyLight does not export SLSCopyManagedDisplaySpaces"}
+	saved.FollowDesktop = true
+	_, err = app.SaveSettings(saved)
+	if err == nil || !strings.Contains(err.Error(), "SLSCopyManagedDisplaySpaces") {
+		t.Fatalf("enabling must fail with the native reason: %v", err)
+	}
+	if string(mustRead(t, app.settingsPath)) != string(before) {
+		t.Fatal("a rejected save must not change settings.json")
+	}
+	if reloaded, err := app.GetSettings(); err != nil || reloaded.FollowDesktop {
+		t.Fatalf("the rejected setting must stay off: %#v %v", reloaded, err)
+	}
+}
+
+func TestFollowDesktopStatusReportsAvailability(t *testing.T) {
+	app := newAppForPaths(t.TempDir(), filepath.Join(t.TempDir(), "settings.json"))
+	if status := app.GetFollowDesktopStatus(); status.Available || status.Reason == "" {
+		t.Fatalf("without a window manager the feature is unavailable: %#v", status)
+	}
+	app.desktop = &Desktop{service: app}
+	if status := app.GetFollowDesktopStatus(); !status.Available || status.Reason != "" {
+		t.Fatalf("a started monitor is available: %#v", status)
+	}
+	app.desktop.followUnavailable = "SkyLight does not export SLSCopyManagedDisplaySpaces"
+	if status := app.GetFollowDesktopStatus(); status.Available || !strings.Contains(status.Reason, "SLSCopyManagedDisplaySpaces") {
+		t.Fatalf("the native reason must be reported: %#v", status)
+	}
+	// An observation failure recorded after start is reported too, so a
+	// launch-time baseline error is never silently lost.
+	app.desktop.followUnavailable = ""
+	app.desktop.lastFollowError = "Follow macOS desktop: desktop snapshot lists no displays"
+	if status := app.GetFollowDesktopStatus(); status.Available || !strings.Contains(status.Reason, "lists no displays") {
+		t.Fatalf("a recorded observation failure must be reported: %#v", status)
+	}
+}
+
+// SaveSettings routes the setting through setFollowDesktop (covered above by
+// the refusal test, which reaches it through SaveSettings); this exercises the
+// same method against a started follower, since SaveSettings' broadcast needs a
+// native application object that tests cannot construct.
+func TestSetFollowDesktopDrivesTheFollower(t *testing.T) {
+	app := newAppForPaths(t.TempDir(), filepath.Join(t.TempDir(), "settings.json"))
+	var dispatched []int
+	follower := newDesktopFollower(
+		func() ([]byte, error) { return []byte(oneDisplay(1)), nil },
+		func(desktop int, sequence uint64) { dispatched = append(dispatched, desktop) },
+		func(error) {},
+	)
+	if err := follower.start(); err != nil {
+		t.Fatal(err)
+	}
+	app.desktop = &Desktop{service: app, follower: follower}
+	if err := app.setFollowDesktop(true); err != nil {
+		t.Fatal(err)
+	}
+	follower.submit([]byte(oneDisplay(2)))
+	follower.process()
+	if !reflect.DeepEqual(dispatched, []int{2}) {
+		t.Fatalf("enabling must take a baseline and follow the next switch: %v", dispatched)
+	}
+	if err := app.setFollowDesktop(false); err != nil {
+		t.Fatal(err)
+	}
+	follower.submit([]byte(oneDisplay(3)))
+	follower.process()
+	if !reflect.DeepEqual(dispatched, []int{2}) {
+		t.Fatalf("disabling must stop following: %v", dispatched)
+	}
+	if err := app.setFollowDesktop(true); err != nil {
+		t.Fatal(err)
+	}
+	follower.submit([]byte(oneDisplay(3)))
+	follower.process()
+	if !reflect.DeepEqual(dispatched, []int{2, 3}) {
+		t.Fatalf("re-enabling must take a fresh baseline: %v", dispatched)
 	}
 }
