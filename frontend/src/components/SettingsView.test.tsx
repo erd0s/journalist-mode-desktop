@@ -57,4 +57,28 @@ describe('SettingsView debug mode', () => {
         await act(async () => showLogs.click());
         expect(onOpenDebugFolder).toHaveBeenCalledOnce();
     });
+
+    it('persists the follow-desktop opt-in with its explanation', async () => {
+        const onSave = vi.fn(async () => undefined);
+        await act(async () => {
+            root.render(
+                <SettingsView
+                    settings={{storageRoot: '/journal', editorFont: 'system', debugMode: false, followDesktop: false} as Settings}
+                    debugLogDirectory="/private/debug"
+                    onBack={vi.fn()}
+                    onBrowse={vi.fn(async () => '')}
+                    onOpenDebugFolder={vi.fn(async () => undefined)}
+                    onSave={onSave}
+                />,
+            );
+        });
+        const follow = host.querySelector<HTMLInputElement>('[aria-label="Follow macOS desktop"]')!;
+        expect(follow.checked).toBe(false);
+        expect(host.textContent).toContain('Automatically select and zoom the Doing stream matching the desktop you switch to.');
+        await act(async () => follow.click());
+        const save = [...host.querySelectorAll<HTMLButtonElement>('button')]
+            .find(button => button.textContent === 'Save settings')!;
+        await act(async () => save.click());
+        expect(onSave).toHaveBeenCalledWith(expect.objectContaining({followDesktop: true, debugMode: false}));
+    });
 });

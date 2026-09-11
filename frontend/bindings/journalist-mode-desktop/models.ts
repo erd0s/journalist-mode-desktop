@@ -279,6 +279,7 @@ export class Settings {
     "storageRoot": string;
     "editorFont": string;
     "debugMode": boolean;
+    "followDesktop": boolean;
 
     /** Creates a new Settings instance. */
     constructor($$source: Partial<Settings> = {}) {
@@ -290,6 +291,9 @@ export class Settings {
         }
         if (!("debugMode" in $$source)) {
             this["debugMode"] = false;
+        }
+        if (!("followDesktop" in $$source)) {
+            this["followDesktop"] = false;
         }
 
         Object.assign(this, $$source);

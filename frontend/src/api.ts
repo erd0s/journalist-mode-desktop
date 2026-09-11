@@ -47,6 +47,7 @@ let mockSettings = new main.Settings({
     storageRoot: '~/Documents/JM',
     editorFont: 'avenir-next-condensed',
     debugMode: false,
+    followDesktop: false,
 });
 let mockDay = new main.DayData({
     date: '2026-08-28',
