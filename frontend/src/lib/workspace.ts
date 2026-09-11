@@ -1,6 +1,7 @@
 export type WorkspaceAction =
     | {type: 'focus-todo'}
     | {type: 'focus-doing'; streamIndex: number}
+    | {type: 'focus-doing-zoomed'; streamIndex: number}
     | {type: 'move-focus'; delta: -1 | 1}
     | {type: 'toggle-zoom'}
     | {type: 'toggle-all-doing-history'}
