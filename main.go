@@ -41,6 +41,11 @@ type Desktop struct {
 	windowMu      sync.Mutex
 	closeMu       sync.Mutex
 	approvedClose map[uint]bool
+
+	follower          *desktopFollower
+	followUnavailable string
+	followErrorMu     sync.Mutex
+	lastFollowError   string
 }
 
 func main() {
@@ -86,6 +91,7 @@ func main() {
 		approvedClose: make(map[uint]bool),
 	}
 	service.desktop = desktop
+	desktop.follower = newDesktopFollower(nativeDesktopSnapshot, desktop.dispatchDesktopChange, desktop.reportDesktopError)
 
 	native.Menu.Set(applicationMenu(native, service, desktop))
 	native.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(*application.ApplicationEvent) {
@@ -93,6 +99,7 @@ func main() {
 	})
 	native.Event.OnApplicationEvent(events.Mac.ApplicationDidFinishLaunching, func(*application.ApplicationEvent) {
 		startNativeCommandHints(desktop)
+		desktop.startDesktopFollow()
 		if err := startNativeUpdates(desktop); err != nil {
 			log.Printf("Updater unavailable: %v", err)
 		}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,9 +31,10 @@ var (
 // Settings contains the small amount of application state that is not stored
 // in the journal files themselves.
 type Settings struct {
-	StorageRoot string `json:"storageRoot"`
-	EditorFont  string `json:"editorFont"`
-	DebugMode   bool   `json:"debugMode"`
+	StorageRoot   string `json:"storageRoot"`
+	EditorFont    string `json:"editorFont"`
+	DebugMode     bool   `json:"debugMode"`
+	FollowDesktop bool   `json:"followDesktop"`
 }
 
 // DaySummary is the information needed by the welcome screen.
@@ -69,15 +71,18 @@ type DayData struct {
 
 // App is the native boundary for settings and journal-file access.
 type App struct {
-	homeDir      string
-	settingsPath string
-	fileMu       sync.Mutex
-	debugMu      sync.Mutex
-	debugKnown   bool
-	debugEnabled bool
-	debugSession string
-	debugLogPath string
-	desktop      *Desktop
+	homeDir       string
+	settingsPath  string
+	fileMu        sync.Mutex
+	debugMu       sync.Mutex
+	debugKnown    bool
+	debugEnabled  bool
+	debugSession  string
+	debugLogPath  string
+	followMu      sync.Mutex
+	followKnown   bool
+	followEnabled bool
+	desktop       *Desktop
 }
 
 // NewApp creates the application using the current user's standard folders.
@@ -144,6 +149,7 @@ func (a *App) GetSettings() (Settings, error) {
 	data, err := os.ReadFile(a.settingsPath)
 	if errors.Is(err, os.ErrNotExist) {
 		a.setDebugMode(settings.DebugMode)
+		a.noteFollowDesktop(settings.FollowDesktop)
 		return settings, nil
 	}
 	if err != nil {
@@ -159,6 +165,7 @@ func (a *App) GetSettings() (Settings, error) {
 	settings.StorageRoot = a.expandPath(settings.StorageRoot)
 	settings.EditorFont = normaliseEditorFont(settings.EditorFont)
 	a.setDebugMode(settings.DebugMode)
+	a.noteFollowDesktop(settings.FollowDesktop)
 
 	return settings, nil
 }
@@ -182,15 +189,23 @@ func (a *App) SaveSettings(settings Settings) (Settings, error) {
 	if err := ensureJournalFolders(settings.StorageRoot); err != nil {
 		return Settings{}, err
 	}
+	// Enable the native follower before writing, so an unavailable private
+	// API rejects the save instead of persisting a setting that cannot work.
+	if err := a.setFollowDesktop(settings.FollowDesktop); err != nil {
+		return Settings{}, err
+	}
 
 	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
+		a.noteFollowDesktop(previous.FollowDesktop)
 		return Settings{}, fmt.Errorf("encode settings: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(a.settingsPath), 0o755); err != nil {
+		a.noteFollowDesktop(previous.FollowDesktop)
 		return Settings{}, fmt.Errorf("create settings folder: %w", err)
 	}
 	if err := atomicWriteFile(a.settingsPath, data, 0o600); err != nil {
+		a.noteFollowDesktop(previous.FollowDesktop)
 		return Settings{}, fmt.Errorf("save settings: %w", err)
 	}
 	a.setDebugMode(settings.DebugMode)
@@ -212,6 +227,36 @@ func (a *App) SetEditorFont(font string) (Settings, error) {
 	}
 	settings.EditorFont = font
 	return a.SaveSettings(settings)
+}
+
+// setFollowDesktop forwards the setting to the native follower once per
+// change. Enabling fails visibly when the private Space API is unavailable.
+func (a *App) setFollowDesktop(enabled bool) error {
+	a.followMu.Lock()
+	defer a.followMu.Unlock()
+	if a.followKnown && a.followEnabled == enabled {
+		return nil
+	}
+	if a.desktop != nil {
+		if enabled && a.desktop.followUnavailable != "" {
+			return errors.New("follow macOS desktop is unavailable: " + a.desktop.followUnavailable)
+		}
+		if a.desktop.follower != nil {
+			if err := a.desktop.follower.setEnabled(enabled); err != nil {
+				return fmt.Errorf("follow macOS desktop: %w", err)
+			}
+		}
+	}
+	a.followKnown, a.followEnabled = true, enabled
+	return nil
+}
+
+// noteFollowDesktop applies a value read from disk. The launch path reports
+// the same failure to every window, so this log line is a second record.
+func (a *App) noteFollowDesktop(enabled bool) {
+	if err := a.setFollowDesktop(enabled); err != nil {
+		log.Printf("Follow macOS desktop: %v", err)
+	}
 }
 
 // ChooseStorageDirectory opens the native folder picker.

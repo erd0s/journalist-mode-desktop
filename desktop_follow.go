@@ -4,8 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // managedSpace is one Mission Control Space. Type 0 is a user desktop; other
@@ -261,4 +266,82 @@ func (f *desktopFollower) baselineLocked() error {
 	}
 	f.previous = &snapshot
 	return nil
+}
+
+// startDesktopFollow starts the native Space observer once the application is
+// running. A persisted enabled setting that cannot work is reported to every
+// window rather than ignored.
+func (d *Desktop) startDesktopFollow() {
+	if err := startNativeDesktopFollow(d); err != nil {
+		d.followUnavailable = err.Error()
+		log.Printf("Follow macOS desktop unavailable: %v", err)
+		if settings, settingsErr := d.service.GetSettings(); settingsErr == nil && settings.FollowDesktop {
+			for _, window := range d.native.Window.GetAll() {
+				dispatchToWindow(window, "menu:error", "Follow macOS desktop is unavailable: "+err.Error())
+			}
+		}
+		return
+	}
+	go d.follower.run()
+	if err := d.follower.start(); err != nil {
+		d.reportDesktopError(err)
+	}
+}
+
+func desktopChangeTarget(windows []application.Window, date string) application.Window {
+	name := dayWindowName(date)
+	for _, window := range windows {
+		if window.Name() == name {
+			return window
+		}
+	}
+	return nil
+}
+
+func localToday() string {
+	return time.Now().Format("2006-01-02")
+}
+
+// dispatchDesktopChange tells today's journal window which desktop is now
+// active. It never shows, focuses or unminimises anything.
+func (d *Desktop) dispatchDesktopChange(desktop int, sequence uint64) {
+	date := localToday()
+	window := desktopChangeTarget(d.native.Window.GetAll(), date)
+	windowName := ""
+	if window != nil {
+		windowName = window.Name()
+	}
+	_ = d.service.RecordDebugEvents([]DebugEvent{{
+		Window: windowName, Category: "desktop", Action: "changed", Sequence: sequence,
+		Details: map[string]string{
+			"desktop":   strconv.Itoa(desktop),
+			"date":      date,
+			"delivered": strconv.FormatBool(window != nil),
+		},
+	}})
+	if window == nil {
+		return
+	}
+	dispatchToWindow(window, "desktop:changed", map[string]any{"desktop": desktop, "sequence": sequence})
+}
+
+// reportDesktopError shows a Space observation failure once per distinct
+// message in today's window, or the current window when today is closed.
+func (d *Desktop) reportDesktopError(err error) {
+	message := "Follow macOS desktop: " + err.Error()
+	d.followErrorMu.Lock()
+	repeated := d.lastFollowError == message
+	d.lastFollowError = message
+	d.followErrorMu.Unlock()
+	log.Print(message)
+	if repeated {
+		return
+	}
+	window := desktopChangeTarget(d.native.Window.GetAll(), localToday())
+	if window == nil {
+		window = d.native.Window.Current()
+	}
+	if window != nil {
+		dispatchToWindow(window, "menu:error", message)
+	}
 }

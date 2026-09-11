@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -406,5 +407,57 @@ func TestEditorFontValidation(t *testing.T) {
 	app := newAppForPaths(t.TempDir(), filepath.Join(t.TempDir(), "settings.json"))
 	if _, err := app.SetEditorFont("comic-sans"); err == nil {
 		t.Fatal("SetEditorFont accepted an unknown font")
+	}
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func TestFollowDesktopSettingPersistsAndDefaultsOff(t *testing.T) {
+	home := t.TempDir()
+	config := filepath.Join(t.TempDir(), "settings.json")
+	app := newAppForPaths(home, config)
+	settings, err := app.GetSettings()
+	if err != nil || settings.FollowDesktop {
+		t.Fatalf("follow desktop must default to off: %#v %v", settings, err)
+	}
+	settings.StorageRoot = filepath.Join(t.TempDir(), "journal")
+	settings.FollowDesktop = true
+	if _, err := app.SaveSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := newAppForPaths(home, config).GetSettings()
+	if err != nil || !reloaded.FollowDesktop {
+		t.Fatalf("follow desktop was not persisted: %#v %v", reloaded, err)
+	}
+	if !strings.Contains(string(mustRead(t, config)), `"followDesktop": true`) {
+		t.Fatal("settings.json must store followDesktop")
+	}
+}
+
+func TestFollowDesktopCannotBeEnabledWhenUnavailable(t *testing.T) {
+	app := newAppForPaths(t.TempDir(), filepath.Join(t.TempDir(), "settings.json"))
+	saved, err := app.SaveSettings(Settings{StorageRoot: filepath.Join(t.TempDir(), "journal")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := mustRead(t, app.settingsPath)
+	app.desktop = &Desktop{service: app, followUnavailable: "SkyLight does not export SLSCopyManagedDisplaySpaces"}
+	saved.FollowDesktop = true
+	_, err = app.SaveSettings(saved)
+	if err == nil || !strings.Contains(err.Error(), "SLSCopyManagedDisplaySpaces") {
+		t.Fatalf("enabling must fail with the native reason: %v", err)
+	}
+	if string(mustRead(t, app.settingsPath)) != string(before) {
+		t.Fatal("a rejected save must not change settings.json")
+	}
+	if reloaded, err := app.GetSettings(); err != nil || reloaded.FollowDesktop {
+		t.Fatalf("the rejected setting must stay off: %#v %v", reloaded, err)
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // Captured from SLSCopyManagedDisplaySpaces on macOS 26.6.2 with nine desktops.
@@ -242,5 +244,39 @@ func TestDesktopFollowerReportsErrors(t *testing.T) {
 	h.follower.process()
 	if want := []string{"2@1"}; !reflect.DeepEqual(h.dispatched, want) {
 		t.Fatalf("a reported error must not stop later changes: %v", h.dispatched)
+	}
+}
+
+// Any window method other than Name, ID and DispatchWailsEvent panics through
+// the nil embedded interface, so a Show or Focus call fails the test.
+type followTestWindow struct {
+	application.Window
+	name   string
+	events []*application.CustomEvent
+}
+
+func (w *followTestWindow) Name() string { return w.name }
+func (w *followTestWindow) ID() uint     { return 1 }
+func (w *followTestWindow) DispatchWailsEvent(event *application.CustomEvent) {
+	w.events = append(w.events, event)
+}
+
+func TestDesktopChangeTargetsOnlyTodaysWindow(t *testing.T) {
+	today := &followTestWindow{name: "day-2026-09-11"}
+	windows := []application.Window{
+		&followTestWindow{name: "welcome"},
+		&followTestWindow{name: "day-2026-09-10"},
+		today,
+		&followTestWindow{name: "settings"},
+	}
+	if desktopChangeTarget(windows, "2026-09-11") != today {
+		t.Fatal("today's window must be the target")
+	}
+	if desktopChangeTarget(windows, "2026-09-12") != nil {
+		t.Fatal("a missing day window must yield no target")
+	}
+	dispatchToWindow(today, "desktop:changed", map[string]any{"desktop": 7, "sequence": uint64(3)})
+	if len(today.events) != 1 || today.events[0].Name != "desktop:changed" {
+		t.Fatalf("unexpected events: %#v", today.events)
 	}
 }
