@@ -40,6 +40,8 @@ export default function App() {
     const settingsReturnScreen = useRef<Screen>('welcome');
     const closeSaveRevision = useRef(0);
     const workspaceSaveStateRef = useRef<WorkspaceSaveState>('saved');
+    const lastDesktopSequence = useRef(0);
+    const pendingDesktop = useRef<number | null>(null);
 
     const handleWorkspaceSaveStateChange = useCallback((state: WorkspaceSaveState) => {
         workspaceSaveStateRef.current = state;
@@ -136,6 +138,11 @@ export default function App() {
             revision: current.revision + 1,
         }));
     };
+
+    // A desktop change must not interrupt a prompt, a quit or an unresolved
+    // file conflict; the latest target waits until that flow ends.
+    const followBlocked = () => dayPickerOpen || closePrompt !== null || shortcutsOpen
+        || quitRequestRef.current !== null || workspaceSaveStateRef.current === 'conflict';
 
     const cancelQuitOrClose = () => {
         const request = quitRequestRef.current;
@@ -265,9 +272,21 @@ export default function App() {
             const editorFont = String(event.data);
             setSettings(current => current ? {...current, editorFont} as Settings : current);
         });
+        const stopDesktop = Events.On('desktop:changed', event => {
+            const data = event.data as {desktop: number; sequence: number};
+            if (!(data.sequence > lastDesktopSequence.current)) return;
+            lastDesktopSequence.current = data.sequence;
+            if (!settings?.followDesktop || screen !== 'day') return;
+            if (followBlocked()) {
+                pendingDesktop.current = data.desktop;
+                return;
+            }
+            requestWorkspaceAction({type: 'focus-doing-zoomed', streamIndex: data.desktop});
+        });
         const stopSettingsChanged = Events.On('settings:changed', event => {
             const changed = event.data as Settings;
             setSettings(changed);
+            if (!changed.followDesktop) pendingDesktop.current = null;
             if (screen === 'welcome') {
                 void appAPI.listDays()
                     .then(nextDays => setDays(nextDays ?? []))
@@ -296,6 +315,7 @@ export default function App() {
             stopMoveFocus();
             stopTogglePaneZoom();
             stopFont();
+            stopDesktop();
             stopSettingsChanged();
             stopError();
             stopClose();
@@ -368,6 +388,18 @@ export default function App() {
         window.addEventListener('keydown', shortcut, true);
         return () => window.removeEventListener('keydown', shortcut, true);
     });
+
+    useEffect(() => {
+        if (pendingDesktop.current === null || screen !== 'day' || dayPickerOpen || closePrompt
+            || shortcutsOpen || quitRequest || workspaceSaveState === 'conflict') {
+            return;
+        }
+        const desktop = pendingDesktop.current;
+        pendingDesktop.current = null;
+        if (settings?.followDesktop) {
+            requestWorkspaceAction({type: 'focus-doing-zoomed', streamIndex: desktop});
+        }
+    }, [closePrompt, dayPickerOpen, quitRequest, screen, settings, shortcutsOpen, workspaceSaveState]);
 
     useEffect(() => {
         if (closePrompt !== 'waiting' || workspaceSaveState === 'saving') {
