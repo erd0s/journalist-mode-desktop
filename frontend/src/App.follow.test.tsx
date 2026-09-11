@@ -9,6 +9,7 @@ const harness = vi.hoisted(() => ({
     actions: [] as string[],
     settings: {storageRoot: '/journal', editorFont: 'system', debugMode: false, followDesktop: true},
     status: {available: true, reason: ''},
+    openDayGate: null as null | (() => void),
     setState: (_state: string) => {},
 }));
 vi.mock('@wailsio/runtime', () => ({
@@ -25,7 +26,11 @@ vi.mock('./api', () => ({appAPI: {
     getFollowDesktopStatus: async () => harness.status,
     listDays: async () => [],
     getLaunchDate: async () => '2026-09-11',
-    openDay: async () => ({date: '2026-09-11', todo: {}, doing: []}),
+    openDay: async () => {
+        if (harness.openDayGate === null) return {date: '2026-09-11', todo: {}, doing: []};
+        await new Promise<void>(resolve => { harness.openDayGate = resolve; });
+        return {date: '2026-09-11', todo: {}, doing: []};
+    },
     cancelQuit: vi.fn(async () => undefined),
     closeWindow: vi.fn(async () => undefined),
 }}));
@@ -49,6 +54,7 @@ describe('desktop follow routing', () => {
         harness.actions = [];
         harness.settings = {...harness.settings, followDesktop: true};
         harness.status = {available: true, reason: ''};
+        harness.openDayGate = null;
         host = document.createElement('div');
         document.body.appendChild(host);
         root = createRoot(host);
@@ -101,6 +107,20 @@ describe('desktop follow routing', () => {
         expect(harness.actions).toEqual([zoom(4)]);
         await act(async () => harness.setState('saved'));
         expect(harness.actions).toEqual([zoom(4)]);
+    });
+
+    it('keeps a change that arrives while today\'s window is still opening', async () => {
+        await act(async () => root.unmount());
+        harness.openDayGate = () => {};
+        root = createRoot(host);
+        await act(async () => root.render(<App/>));
+        expect(host.textContent).not.toContain('Journal editor');
+        await event('desktop:changed', {desktop: 4, sequence: 1});
+        await event('desktop:changed', {desktop: 7, sequence: 2});
+        expect(harness.actions).toEqual([]);
+        await act(async () => { harness.openDayGate!(); });
+        expect(host.textContent).toContain('Journal editor');
+        expect(harness.actions).toEqual([zoom(7)]);
     });
 
     it('shows why following is inactive when the setting is on but the native monitor is unavailable', async () => {

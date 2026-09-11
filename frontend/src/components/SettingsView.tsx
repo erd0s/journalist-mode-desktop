@@ -136,7 +136,7 @@ export function SettingsView({
                                 type="checkbox"
                                 aria-label="Follow macOS desktop"
                                 checked={followDesktop}
-                                disabled={followStatus !== null && !followStatus.available}
+                                disabled={followStatus !== null && !followStatus.available && !followDesktop}
                                 onChange={event => setFollowDesktop(event.target.checked)}
                             />
                             <span aria-hidden="true"/>

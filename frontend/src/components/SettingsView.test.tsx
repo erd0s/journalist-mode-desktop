@@ -102,4 +102,30 @@ describe('SettingsView debug mode', () => {
         expect(follow.disabled).toBe(true);
         expect(host.textContent).toContain('SLSCopyManagedDisplaySpaces');
     });
+
+    it('still lets a persisted opt-in be turned off when the native monitor is unavailable', async () => {
+        vi.spyOn(appAPI, 'getFollowDesktopStatus').mockResolvedValue({available: false, reason: 'SkyLight does not export SLSCopyManagedDisplaySpaces'});
+        const onSave = vi.fn(async () => undefined);
+        await act(async () => {
+            root.render(
+                <SettingsView
+                    settings={{storageRoot: '/journal', editorFont: 'system', debugMode: false, followDesktop: true} as Settings}
+                    debugLogDirectory="/private/debug"
+                    onBack={vi.fn()}
+                    onBrowse={vi.fn(async () => '')}
+                    onOpenDebugFolder={vi.fn(async () => undefined)}
+                    onSave={onSave}
+                />,
+            );
+        });
+        const follow = host.querySelector<HTMLInputElement>('[aria-label="Follow macOS desktop"]')!;
+        expect(follow.checked).toBe(true);
+        expect(follow.disabled).toBe(false);
+        await act(async () => follow.click());
+        expect(follow.disabled).toBe(true);
+        const save = [...host.querySelectorAll<HTMLButtonElement>('button')]
+            .find(button => button.textContent === 'Save settings')!;
+        await act(async () => save.click());
+        expect(onSave).toHaveBeenCalledWith(expect.objectContaining({followDesktop: false}));
+    });
 });

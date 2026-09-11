@@ -160,16 +160,20 @@ type desktopFollower struct {
 	started  bool
 	wanted   bool
 	previous *spaceSnapshot
-	// lastDesktop is the last numbered desktop seen per display, so leaving
+	// lastSpace is the last numbered Space each display showed, so leaving
 	// for a full-screen Space and returning to the same desktop is not a
-	// desktop change.
-	lastDesktop map[string]int
-	sequence    uint64
-	latest      atomic.Pointer[[]byte]
-	signal      chan struct{}
-	snapshot    func() ([]byte, error)
-	dispatch    func(desktop int, sequence uint64)
-	report      func(err error)
+	// desktop change. It compares Space identity, not the desktop number,
+	// because reordering or removing desktops renumbers them without a switch.
+	lastSpace map[string]uint64
+	// failed records an observation error so the next good snapshot can
+	// report recovery and clear the user-visible status.
+	failed   bool
+	sequence uint64
+	latest   atomic.Pointer[[]byte]
+	signal   chan struct{}
+	snapshot func() ([]byte, error)
+	dispatch func(desktop int, sequence uint64)
+	report   func(err error)
 }
 
 func newDesktopFollower(snapshot func() ([]byte, error), dispatch func(int, uint64), report func(error)) *desktopFollower {
@@ -192,22 +196,26 @@ func (f *desktopFollower) run() {
 
 // process handles one pending snapshot and reports whether one was pending.
 // run has already consumed the signal token; direct callers drain it here.
+// The payload is taken under the mutex so a baseline applied meanwhile wins
+// over a snapshot that was queued before it.
 func (f *desktopFollower) process() bool {
 	select {
 	case <-f.signal:
 	default:
 	}
+	f.mu.Lock()
 	data := f.latest.Swap(nil)
 	if data == nil {
+		f.mu.Unlock()
 		return false
 	}
-	f.mu.Lock()
 	if !f.wanted {
 		f.mu.Unlock()
 		return true
 	}
 	snapshot, err := parseSpaceSnapshot(*data)
 	if err != nil {
+		f.failed = true
 		f.mu.Unlock()
 		f.report(err)
 		return true
@@ -215,23 +223,39 @@ func (f *desktopFollower) process() bool {
 	display, desktop, changed, err := desktopChange(f.previous, &snapshot)
 	f.previous = &snapshot
 	if err != nil {
+		f.failed = true
 		f.mu.Unlock()
 		f.report(err)
 		return true
 	}
-	if changed && f.lastDesktop[display] == desktop {
+	recovered := f.failed
+	f.failed = false
+	if changed && f.lastSpace[display] == currentSpaceOf(&snapshot, display) {
 		changed = false
 	}
 	f.noteDesktopsLocked(&snapshot)
-	if !changed {
-		f.mu.Unlock()
-		return true
+	var sequence uint64
+	if changed {
+		f.sequence++
+		sequence = f.sequence
 	}
-	f.sequence++
-	sequence := f.sequence
 	f.mu.Unlock()
-	f.dispatch(desktop, sequence)
+	if recovered {
+		f.report(nil)
+	}
+	if changed {
+		f.dispatch(desktop, sequence)
+	}
 	return true
+}
+
+func currentSpaceOf(snapshot *spaceSnapshot, display string) uint64 {
+	for _, entry := range snapshot.Displays {
+		if entry.ID == display {
+			return entry.Current
+		}
+	}
+	return 0
 }
 
 // submitBaseline replaces the baseline with this snapshot without following
@@ -256,20 +280,25 @@ func (f *desktopFollower) submitBaseline(data []byte) {
 		return
 	}
 	f.previous = &snapshot
-	f.lastDesktop = nil
+	f.lastSpace = nil
 	f.noteDesktopsLocked(&snapshot)
+	recovered := f.failed
+	f.failed = false
 	f.mu.Unlock()
+	if recovered {
+		f.report(nil)
+	}
 }
 
-// noteDesktopsLocked remembers the numbered desktop each display shows.
+// noteDesktopsLocked remembers the numbered Space each display shows.
 func (f *desktopFollower) noteDesktopsLocked(snapshot *spaceSnapshot) {
-	if f.lastDesktop == nil {
-		f.lastDesktop = make(map[string]int)
+	if f.lastSpace == nil {
+		f.lastSpace = make(map[string]uint64)
 	}
 	numbers := desktopNumbers(*snapshot)
 	for _, display := range snapshot.Displays {
 		if desktop, err := currentDesktop(display, numbers); err == nil && desktop > 0 {
-			f.lastDesktop[display.ID] = desktop
+			f.lastSpace[display.ID] = display.Current
 		}
 	}
 }
@@ -282,7 +311,7 @@ func (f *desktopFollower) setEnabled(enabled bool) error {
 	defer f.mu.Unlock()
 	f.wanted = enabled
 	f.previous = nil
-	f.lastDesktop = nil
+	f.lastSpace = nil
 	f.latest.Store(nil)
 	select {
 	case <-f.signal:
@@ -304,18 +333,27 @@ func (f *desktopFollower) start() error {
 	return nil
 }
 
+// baselineLocked takes a fresh reference snapshot. A failure is returned to
+// the caller (a settings save or the launch path) and remembered so the next
+// good snapshot reports recovery.
 func (f *desktopFollower) baselineLocked() error {
 	data, err := f.snapshot()
 	if err != nil {
+		f.failed = true
 		return err
 	}
 	snapshot, err := parseSpaceSnapshot(data)
 	if err != nil {
+		f.failed = true
 		return err
 	}
 	f.previous = &snapshot
-	f.lastDesktop = nil
+	f.lastSpace = nil
 	f.noteDesktopsLocked(&snapshot)
+	if f.failed {
+		f.failed = false
+		defer f.report(nil)
+	}
 	return nil
 }
 
@@ -326,12 +364,21 @@ type FollowDesktopStatus struct {
 	Reason    string `json:"reason"`
 }
 
+// GetFollowDesktopStatus reports a monitor that could not start and also the
+// last observation failure, so a launch-time baseline error that no window
+// could display yet is still visible in Settings and the day window.
 func (a *App) GetFollowDesktopStatus() FollowDesktopStatus {
 	if a.desktop == nil {
 		return FollowDesktopStatus{Reason: "window manager is not available"}
 	}
 	if reason := a.desktop.followUnavailableReason(); reason != "" {
 		return FollowDesktopStatus{Reason: reason}
+	}
+	a.desktop.followErrorMu.Lock()
+	lastError := a.desktop.lastFollowError
+	a.desktop.followErrorMu.Unlock()
+	if lastError != "" {
+		return FollowDesktopStatus{Reason: lastError}
 	}
 	return FollowDesktopStatus{Available: true}
 }
@@ -399,13 +446,20 @@ func (d *Desktop) dispatchDesktopChange(desktop int, sequence uint64) {
 // reportDesktopError shows a Space observation failure once per distinct
 // message in today's window, or in every window when today is closed. The
 // key window is usually another application's while this feature runs, so
-// Window.Current is not a useful target.
+// Window.Current is not a useful target. A nil error means the observer
+// recovered; the recorded failure is cleared so the status reads available.
 func (d *Desktop) reportDesktopError(err error) {
-	message := "Follow macOS desktop: " + err.Error()
+	if err == nil {
+		d.followErrorMu.Lock()
+		d.lastFollowError = ""
+		d.followErrorMu.Unlock()
+		return
+	}
 	d.followErrorMu.Lock()
-	repeated := d.lastFollowError == message
-	d.lastFollowError = message
+	repeated := d.lastFollowError == err.Error()
+	d.lastFollowError = err.Error()
 	d.followErrorMu.Unlock()
+	message := "Follow macOS desktop: " + err.Error()
 	log.Print(message)
 	if repeated {
 		return

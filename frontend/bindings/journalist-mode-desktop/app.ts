@@ -80,6 +80,11 @@ export function GetDebugLogDirectory(): $CancellablePromise<string> {
     return $Call.ByID(2452506095);
 }
 
+/**
+ * GetFollowDesktopStatus reports a monitor that could not start and also the
+ * last observation failure, so a launch-time baseline error that no window
+ * could display yet is still visible in Settings and the day window.
+ */
 export function GetFollowDesktopStatus(): $CancellablePromise<$models.FollowDesktopStatus> {
     return $Call.ByID(3541499468).then(($result: any) => {
         return $$createType2($result);

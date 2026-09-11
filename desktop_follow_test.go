@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -140,9 +141,105 @@ func newFollowerHarness() *followerHarness {
 		func(desktop int, sequence uint64) {
 			h.dispatched = append(h.dispatched, fmt.Sprintf("%d@%d", desktop, sequence))
 		},
-		func(err error) { h.reported = append(h.reported, err.Error()) },
+		func(err error) {
+			if err == nil {
+				h.reported = append(h.reported, "recovered")
+				return
+			}
+			h.reported = append(h.reported, err.Error())
+		},
 	)
 	return h
+}
+
+func display(current uint64, order ...uint64) string {
+	spaces := ""
+	for i, id := range order {
+		if i > 0 {
+			spaces += ","
+		}
+		spaces += fmt.Sprintf(`{"id64":%d,"type":0}`, id)
+	}
+	return fmt.Sprintf(`{"displays":[{"Display Identifier":"D","Current Space":{"id64":%d},"Spaces":[%s]}]}`, current, spaces)
+}
+
+func TestDesktopFollowerFollowsRenumberedDesktops(t *testing.T) {
+	// Reordering or removing desktops posts no Space change, so the next real
+	// switch must use the new numbering even when the number repeats.
+	h := newFollowerHarness()
+	h.snapshots = append(h.snapshots, display(3, 1, 2, 3))
+	if err := h.follower.start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.follower.setEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	h.follower.submit([]byte(display(3, 3, 1, 2))) // Dragged to the front: still on the same space, now Desktop 1.
+	h.follower.process()
+	h.follower.submit([]byte(display(2, 3, 1, 2))) // Switch to id 2, which Mission Control now labels Desktop 3.
+	h.follower.process()
+	if want := []string{"3@1"}; !reflect.DeepEqual(h.dispatched, want) {
+		t.Fatalf("reorder: dispatched %v, want %v", h.dispatched, want)
+	}
+	h.follower.submit([]byte(display(2, 3, 2))) // Desktop id 1 removed while on id 2 (now Desktop 2).
+	h.follower.process()
+	h.follower.submit([]byte(display(3, 3, 2))) // Switch to id 3, now Desktop 1.
+	h.follower.process()
+	if want := []string{"3@1", "1@2"}; !reflect.DeepEqual(h.dispatched, want) {
+		t.Fatalf("removal: dispatched %v, want %v", h.dispatched, want)
+	}
+}
+
+func TestDesktopFollowerReportsRecovery(t *testing.T) {
+	h := newFollowerHarness()
+	h.snapshots = append(h.snapshots, oneDisplay(1))
+	if err := h.follower.start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.follower.setEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	h.follower.submit([]byte(oneDisplay(2)))
+	h.follower.process()
+	h.follower.submit([]byte(`{"error":"broken"}`))
+	h.follower.process()
+	h.follower.submit([]byte(oneDisplay(3)))
+	h.follower.process()
+	h.follower.submit([]byte(oneDisplay(1)))
+	h.follower.process()
+	if want := []string{"broken", "recovered"}; !reflect.DeepEqual(h.reported, want) {
+		t.Fatalf("recovery must be reported once after a failure: %v", h.reported)
+	}
+	if want := []string{"2@1", "3@2", "1@3"}; !reflect.DeepEqual(h.dispatched, want) {
+		t.Fatalf("dispatched %v, want %v", h.dispatched, want)
+	}
+}
+
+func TestDesktopFollowerRunDeliversConcurrentSubmissions(t *testing.T) {
+	h := newFollowerHarness()
+	h.snapshots = append(h.snapshots, oneDisplay(1))
+	var mu sync.Mutex
+	dispatched := make(chan string, 16)
+	h.follower.dispatch = func(desktop int, sequence uint64) {
+		mu.Lock()
+		defer mu.Unlock()
+		dispatched <- fmt.Sprintf("%d@%d", desktop, sequence)
+	}
+	if err := h.follower.start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.follower.setEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	go h.follower.run()
+	h.follower.submit([]byte(oneDisplay(2)))
+	first := <-dispatched
+	h.follower.submit([]byte(oneDisplay(3)))
+	second := <-dispatched
+	if first != "2@1" || second != "3@2" {
+		t.Fatalf("run delivered %s then %s", first, second)
+	}
+	close(h.follower.signal)
 }
 
 func oneDisplay(current uint64) string {
@@ -242,9 +339,14 @@ func TestDesktopFollowerReportsErrors(t *testing.T) {
 	if err := h.follower.setEnabled(true); err != nil {
 		t.Fatal(err)
 	}
+	// The failed start was returned to its caller; a later good baseline
+	// reports recovery so the caller can clear what it showed.
+	if want := []string{"recovered"}; !reflect.DeepEqual(h.reported, want) {
+		t.Fatalf("recovery after a failed start must be reported: %v", h.reported)
+	}
 	h.follower.submit([]byte(`{"error":"SLSCopyManagedDisplaySpaces returned no data"}`))
 	h.follower.process()
-	if len(h.reported) != 1 || !strings.Contains(h.reported[0], "returned no data") {
+	if len(h.reported) != 2 || !strings.Contains(h.reported[1], "returned no data") {
 		t.Fatalf("parse errors must be reported: %v", h.reported)
 	}
 	h.follower.submit([]byte(oneDisplay(2)))

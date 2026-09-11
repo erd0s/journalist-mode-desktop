@@ -42,6 +42,10 @@ export default function App() {
     const workspaceSaveStateRef = useRef<WorkspaceSaveState>('saved');
     const lastDesktopSequence = useRef(0);
     const pendingDesktop = useRef<number | null>(null);
+    // The setting is mirrored in a ref and updated synchronously by
+    // settings:changed, so an event already in flight when the setting turns
+    // off cannot apply through a stale render closure. null means unknown.
+    const followDesktopRef = useRef<boolean | null>(null);
 
     const handleWorkspaceSaveStateChange = useCallback((state: WorkspaceSaveState) => {
         workspaceSaveStateRef.current = state;
@@ -54,6 +58,7 @@ export default function App() {
             appAPI.listDays(),
         ]);
         setSettings(nextSettings);
+        followDesktopRef.current = nextSettings.followDesktop;
         setDays(nextDays ?? []);
         return nextSettings;
     };
@@ -284,8 +289,10 @@ export default function App() {
             const data = event.data as {desktop: number; sequence: number};
             if (!(data.sequence > lastDesktopSequence.current)) return;
             lastDesktopSequence.current = data.sequence;
-            if (!settings?.followDesktop || screen !== 'day') return;
-            if (followBlocked()) {
+            if (followDesktopRef.current === false) return;
+            // Keep the latest target while today's window is still opening or
+            // a modal flow is showing; the effect below applies it once it can.
+            if (followDesktopRef.current === null || screen !== 'day' || followBlocked()) {
                 pendingDesktop.current = data.desktop;
                 return;
             }
@@ -293,6 +300,7 @@ export default function App() {
         });
         const stopSettingsChanged = Events.On('settings:changed', event => {
             const changed = event.data as Settings;
+            followDesktopRef.current = changed.followDesktop;
             setSettings(changed);
             if (!changed.followDesktop) pendingDesktop.current = null;
             if (screen === 'welcome') {
@@ -404,7 +412,7 @@ export default function App() {
         }
         const desktop = pendingDesktop.current;
         pendingDesktop.current = null;
-        if (settings?.followDesktop) {
+        if (followDesktopRef.current) {
             requestWorkspaceAction({type: 'focus-doing-zoomed', streamIndex: desktop});
         }
     }, [closePrompt, dayPickerOpen, quitRequest, screen, settings, shortcutsOpen]);
@@ -450,6 +458,7 @@ export default function App() {
     const saveSettings = async (nextSettings: Settings) => {
         try {
             const saved = await appAPI.saveSettings(nextSettings);
+            followDesktopRef.current = saved.followDesktop;
             setSettings(saved);
             setError('');
             if (settingsWindow && appAPI.isNative()) {

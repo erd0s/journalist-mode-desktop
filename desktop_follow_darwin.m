@@ -8,9 +8,11 @@ static CGSConnectionID (*jm_SLSMainConnectionID)(void);
 static CFArrayRef (*jm_SLSCopyManagedDisplaySpaces)(CGSConnectionID);
 static BOOL desktopMonitorStarted;
 
+// The package builds without ARC, so every allocation here is released or
+// autoreleased and callers run inside an autorelease pool.
 static char *jm_json_string(NSDictionary *object) {
     NSData *data = [NSJSONSerialization dataWithJSONObject:object options:0 error:nil];
-    NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    NSString *text = [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease];
     return strdup(text.UTF8String);
 }
 
@@ -21,18 +23,20 @@ static char *jm_json_error(NSString *reason) {
 // jm_desktop_snapshot serialises the live SLSCopyManagedDisplaySpaces array.
 // It uses no AppKit state, so any thread may call it.
 char *jm_desktop_snapshot(void) {
-    if (!jm_SLSMainConnectionID || !jm_SLSCopyManagedDisplaySpaces) {
-        return jm_json_error(@"SkyLight symbols are not loaded");
+    @autoreleasepool {
+        if (!jm_SLSMainConnectionID || !jm_SLSCopyManagedDisplaySpaces) {
+            return jm_json_error(@"SkyLight symbols are not loaded");
+        }
+        CFArrayRef spaces = jm_SLSCopyManagedDisplaySpaces(jm_SLSMainConnectionID());
+        if (!spaces) {
+            return jm_json_error(@"SLSCopyManagedDisplaySpaces returned no data");
+        }
+        NSDictionary *payload = @{@"displays": CFBridgingRelease(spaces)};
+        if (![NSJSONSerialization isValidJSONObject:payload]) {
+            return jm_json_error(@"SLSCopyManagedDisplaySpaces returned values that cannot be serialised");
+        }
+        return jm_json_string(payload);
     }
-    CFArrayRef spaces = jm_SLSCopyManagedDisplaySpaces(jm_SLSMainConnectionID());
-    if (!spaces) {
-        return jm_json_error(@"SLSCopyManagedDisplaySpaces returned no data");
-    }
-    NSDictionary *payload = @{@"displays": CFBridgingRelease(spaces)};
-    if (![NSJSONSerialization isValidJSONObject:payload]) {
-        return jm_json_error(@"SLSCopyManagedDisplaySpaces returned values that cannot be serialised");
-    }
-    return jm_json_string(payload);
 }
 
 static void jm_publish_desktop_snapshot(int baseline) {
