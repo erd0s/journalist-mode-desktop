@@ -1,9 +1,21 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
-  <channel>
-    <title>Journalist Mode</title>
-    <link>https://github.com/erd0s/journalist-mode-desktop/releases</link>
-    <description>Stable macOS updates for Journalist Mode.</description>
-    <language>en</language>
-  </channel>
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Journalist Mode</title>
+        <link>https://github.com/erd0s/journalist-mode-desktop/releases</link>
+        <description>Stable macOS updates for Journalist Mode.</description>
+        <language>en</language>
+        <item>
+            <title>0.8.0</title>
+            <pubDate>Sat, 12 Sep 2026 15:33:50 +0100</pubDate>
+            <link>https://github.com/erd0s/journalist-mode-desktop/releases</link>
+            <sparkle:version>0.8.0</sparkle:version>
+            <sparkle:shortVersionString>0.8.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>12.0.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description><![CDATA[<p>Journalist Mode 0.8.0</p><p>New<br>- Follow macOS desktop: an optional Settings switch. When you move to another Mission Control desktop, today&#x27;s journal window selects and zooms the Doing stream with the same number, without taking focus from the app you switched to.<br>- In-app updates: daily checks, your choice when to install, and a save-or-discard step for every open journal before the app relaunches.<br>- Keyboard shortcut reference in every day window, and pane hints while Command is held.<br>- Up and Down select a day in the day picker; Return opens it.<br>- Pasted Todo tasks receive today&#x27;s date, including multi-line pastes.<br>- Editor padding scales down as panes narrow; Todo date tags are easier to read.</p><p>Fixed<br>- Journal window cycling wraps at both ends and keeps full screen.<br>- Reopening the running app focuses an existing window.<br>- Command-Shift-C copies a Todo task without moving focus.<br>- Control-Option-H toggles completed history in the focused Doing pane.</p>
+]]></description>
+            <enclosure url="https://github.com/erd0s/journalist-mode-desktop/releases/download/v0.8.0/Journalist-Mode-0.8.0-macos-arm64.zip" length="5716172" type="application/octet-stream" sparkle:edSignature="CKlgzPDEUxIXPKjDnoPRAn0qidH5m4/qcqFzDWeDcuf/Zl27cc6nJgFnsvUE1U/Cb5uBhyDbrKhfzpaDr494Bg=="/>
+        </item>
+    </channel>
 </rss>
