@@ -22,6 +22,7 @@ import {
     SaveSettings as nativeSaveSettings,
 } from '../bindings/journalist-mode-desktop/app';
 import * as main from '../bindings/journalist-mode-desktop/models';
+import {Clipboard} from '@wailsio/runtime';
 
 export type Settings = main.Settings;
 export type FollowDesktopStatus = main.FollowDesktopStatus;
@@ -99,6 +100,42 @@ const mockDays = [
 
 export const appAPI = {
     isNative,
+
+    async copyText(text: string): Promise<void> {
+        if (!text) return;
+        // Keep WKWebView's focus and selection untouched when copying a task.
+        if (isNative()) {
+            await Clipboard.SetText(text);
+            return;
+        }
+        if (navigator.clipboard) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return;
+            } catch {
+                // A browser may expose the API but deny permission to use it.
+            }
+        }
+
+        // Supply the copy event's data without selecting a temporary textarea.
+        // Intercept before CodeMirror substitutes the editor's own selection.
+        let copied = false;
+        const copy = (event: ClipboardEvent) => {
+            if (!event.clipboardData) return;
+            event.clipboardData.setData('text/plain', text);
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            copied = true;
+        };
+        document.addEventListener('copy', copy, true);
+        try {
+            if (!document.execCommand('copy') || !copied) {
+                throw new Error('Clipboard copy failed.');
+            }
+        } finally {
+            document.removeEventListener('copy', copy, true);
+        }
+    },
 
     async approveQuit(token: number): Promise<void> {
         if (isNative()) await nativeApproveQuit(token);

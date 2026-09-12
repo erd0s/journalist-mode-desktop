@@ -626,6 +626,7 @@ export function DayWorkspace({
             <section className={`pane-strip${zoomedPath ? ' is-zoomed' : ''}`}>
                 <TodoPane
                     file={day.todo}
+                    onError={onError}
                     saveRequest={saveRequest}
                     discardRequest={discardRequest}
                     diskContent={diskContents[day.todo.path] ?? day.todo.content}
@@ -687,10 +688,12 @@ type DiskAwarePaneProps = {
     hidden: boolean;
     shortcutHint: string;
     onFocus: () => void;
+    onError?: (message: string) => void;
 };
 
 function TodoPane({
     file,
+    onError,
     saveRequest,
     discardRequest,
     diskContent,
@@ -727,6 +730,7 @@ function TodoPane({
             {shortcutHint && <div className="pane-shortcut-hint" aria-hidden="true">{shortcutHint}</div>}
             <LineEditor
                 kind="todo"
+                onError={onError}
                 lines={journal.lines}
                 onChange={journal.update}
                 onFocus={onFocus}

@@ -23,6 +23,7 @@ import {
     linesToContent,
 } from '../lib/journal';
 import {clockEmojiForTimestamp} from '../lib/timestamp';
+import {appAPI} from '../api';
 
 type LineEditorProps = {
     kind: 'doing' | 'todo';
@@ -30,6 +31,7 @@ type LineEditorProps = {
     showCompleted?: boolean;
     onChange: (lines: string[], interaction: EditorInteraction) => void;
     onFocus?: () => void;
+    onError?: (message: string) => void;
     focusRequest?: number;
 };
 
@@ -50,16 +52,19 @@ export function LineEditor({
     showCompleted = true,
     onChange,
     onFocus,
+    onError,
     focusRequest = 0,
 }: LineEditorProps) {
     const hostRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView>();
     const onChangeRef = useRef(onChange);
     const onFocusRef = useRef(onFocus);
+    const onErrorRef = useRef(onError);
     const completedVisibility = useRef(new Compartment());
 
     onChangeRef.current = onChange;
     onFocusRef.current = onFocus;
+    onErrorRef.current = onError;
 
     useEffect(() => {
         if (!hostRef.current) {
@@ -114,7 +119,9 @@ export function LineEditor({
                         });
                         return true;
                     }),
-                    Prec.high(keymap.of(journalKeymap(kind))),
+                    Prec.high(keymap.of(journalKeymap(kind, () => {
+                        onErrorRef.current?.('Could not copy this Todo item. Please try again.');
+                    }))),
                     keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap]),
                     completedVisibility.current.of(
                         editorVisibilityExtensions(kind, showCompleted),
@@ -314,7 +321,7 @@ export function doingInputGuard(completedHidden = false): Extension {
     });
 }
 
-function journalKeymap(kind: 'doing' | 'todo') {
+function journalKeymap(kind: 'doing' | 'todo', onCopyError: () => void) {
     const mutate = (
         view: EditorView,
         action: 'enter' | 'finish' | 'cancel',
@@ -344,7 +351,7 @@ function journalKeymap(kind: 'doing' | 'todo') {
                     return false;
                 }
                 const line = view.state.doc.lineAt(view.state.selection.main.head).text;
-                void copyText(copyTodoText(line));
+                void appAPI.copyText(copyTodoText(line)).catch(onCopyError);
                 return true;
             },
         },
@@ -491,21 +498,4 @@ export function journalDecorations(
         );
     }
     return Decoration.set(ranges, true);
-}
-
-async function copyText(text: string) {
-    if (!text) {
-        return;
-    }
-    if (navigator.clipboard) {
-        await navigator.clipboard.writeText(text);
-        return;
-    }
-
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand('copy');
-    textarea.remove();
 }

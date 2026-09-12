@@ -1,0 +1,50 @@
+{
+  "date": "2026-09-08",
+  "scope": "Command-Shift-C Todo clipboard focus",
+  "diagnosisLimit": "The original persistent native focus trap was not reproduced in synthetic journals. The old browser fallback demonstrably focused a temporary textarea and left focus on body after removal.",
+  "change": "Use the Wails native clipboard in the desktop app. The browser fallback supplies copy-event data without moving focus or selection. Copy failures are handled.",
+  "automated": {
+    "frontendTests": 101,
+    "goTests": "pass",
+    "typescriptAndProductionBuild": "pass",
+    "regressionBeforeChange": "All five initial copy regressions failed against original source; six final copy regression cases pass."
+  },
+  "browser": {
+    "originalFallbackFocusSequence": [
+      "Todo",
+      "textarea",
+      "body"
+    ],
+    "fixedFallbackFocusSequence": [
+      "Todo",
+      "Doing 1",
+      "Doing 2",
+      "Doing 3"
+    ],
+    "doingSwitches": "real CDP mouse clicks",
+    "clipboardAPI": "forced unavailable to exercise fallback"
+  },
+  "native": {
+    "harness": "Wails app built with production frontend; isolated settings, journal fixtures and application identifier; observed via macOS Accessibility",
+    "variants": [
+      "caret at end",
+      "partial selection",
+      "whole task selection",
+      "whole document selection",
+      "five repeated copies",
+      "immediate switch after copy"
+    ],
+    "eachVariant": "Command-1, Command-2, Command-3, then another copy and mouse focus into Doing 1 passed",
+    "clipboardText": "Task text without its date",
+    "visibleTextAndFilesUnchanged": true,
+    "debugMode": false
+  },
+  "artifact": {
+    "version": "0.7.0",
+    "sha256": "5f5e36d712d484a87cc83c2f986062af4696c4c03291fc1ccbf4c6e16b0ed85e",
+    "signature": "Notarized Developer ID",
+    "installed": true,
+    "runningOriginalProcess": "left running; restart required to load the change",
+    "githubReleasePublished": false
+  }
+}
