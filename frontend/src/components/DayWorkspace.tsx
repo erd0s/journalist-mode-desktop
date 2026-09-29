@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {DragEvent, HTMLAttributes, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {appAPI, DayData, DebugFileSnapshot, JournalFile} from '../api';
 import {DebugEventDraft, DebugRecorder, keyboardDetails, targetDetails} from '../lib/debug';
 import {contentToLines, linesToContent} from '../lib/journal';
@@ -62,6 +62,14 @@ export function DayWorkspace({
     onSaveStateChange,
     onSaveComplete,
 }: DayWorkspaceProps) {
+    const [reordering, setReordering] = useState(false);
+    const reorderBusy = useRef(false);
+    const creating = useRef(0);
+    const pollGeneration = useRef(0);
+    const dragSource = useRef<string | null>(null);
+    const [dropBoundary, setDropBoundary] = useState<number | null>(null);
+    const [contentRevision, setContentRevision] = useState(0);
+    const [moveNotice, setMoveNotice] = useState('');
     const showHints = useCommandHints(!interactionDisabled, debugMode);
     const [doingFiles, setDoingFiles] = useState<JournalFile[]>(day.doing);
     const files = useMemo(() => [day.todo, ...doingFiles], [day.todo, doingFiles]);
@@ -241,7 +249,7 @@ export function DayWorkspace({
     }, [day.todo.path, doingFiles, focusedPath, todoVisible]);
 
     useEffect(() => {
-        setDiskContents(contentsByPath(files));
+        setDiskContents(current => ({...contentsByPath(files), ...current}));
     }, [files]);
 
     useEffect(() => {
@@ -251,7 +259,7 @@ export function DayWorkspace({
         }
         saveStates.current = next;
         const states = paths.map(path => next[path]);
-        onSaveStateChange(aggregateSaveState(states));
+        onSaveStateChange(reorderBusy.current ? 'saving' : aggregateSaveState(states));
     }, [onSaveStateChange, paths]);
 
     useEffect(() => {
@@ -275,13 +283,14 @@ export function DayWorkspace({
         let reading = false;
 
         const readDisk = async () => {
-            if (reading) {
+            if (reading || reorderBusy.current) {
                 return;
             }
             reading = true;
+            const generation = pollGeneration.current;
             try {
                 const snapshots = await appAPI.readJournalFiles(paths);
-                if (!stopped) {
+                if (!stopped && !reorderBusy.current && generation === pollGeneration.current) {
                     setDiskContents(current => mergeSnapshots(current, snapshots));
                 }
             } catch (reason) {
@@ -317,7 +326,7 @@ export function DayWorkspace({
         }
         const next = {...saveStates.current, [path]: state};
         saveStates.current = next;
-        onSaveStateChange(aggregateSaveState(
+        onSaveStateChange(reorderBusy.current ? 'saving' : aggregateSaveState(
             paths.map(currentPath => next[currentPath] ?? 'saved'),
         ));
     }, [onSaveStateChange, paths]);
@@ -501,7 +510,7 @@ export function DayWorkspace({
 
     useEffect(() => {
         const shortcut = (event: KeyboardEvent) => {
-            if (interactionDisabled) {
+            if (interactionDisabled || reorderBusy.current) {
                 return;
             }
             const action = workspaceActionForShortcut(event);
@@ -522,14 +531,15 @@ export function DayWorkspace({
     }, [handleWorkspaceAction, interactionDisabled]);
 
     useEffect(() => {
-        if (handledWorkspaceAction.current === workspaceActionRequest.revision) {
+        if (reordering || handledWorkspaceAction.current === workspaceActionRequest.revision) {
             return;
         }
         handledWorkspaceAction.current = workspaceActionRequest.revision;
         handleWorkspaceAction(workspaceActionRequest.action);
-    }, [handleWorkspaceAction, workspaceActionRequest]);
+    }, [handleWorkspaceAction, reordering, workspaceActionRequest]);
 
     useEffect(() => {
+        if (reordering) return;
         const count = newDoingRequest - handledNewDoingRequest.current;
         if (count <= 0) {
             return;
@@ -540,6 +550,7 @@ export function DayWorkspace({
             action: 'new_doing_requested',
             details: {count: String(count)},
         });
+        creating.current += 1;
         createChain.current = createChain.current.then(async () => {
             for (let pending = 0; pending < count; pending += 1) {
                 try {
@@ -569,13 +580,103 @@ export function DayWorkspace({
                     onError(errorMessage(reason));
                 }
             }
-        });
-    }, [day.date, newDoingRequest, onError, recordDebug]);
+        }).finally(() => { creating.current -= 1; });
+    }, [day.date, newDoingRequest, onError, recordDebug, reordering]);
+
+    const clearDrag = () => {
+        dragSource.current = null;
+        setDropBoundary(null);
+    };
+
+    const moveContents = async (sourcePath: string, boundary: number) => {
+        const source = doingFiles.findIndex(file => file.path === sourcePath);
+        const destination = boundary > source ? boundary - 1 : boundary;
+        if (source < 0 || destination < 0 || destination >= doingFiles.length || source === destination
+            || interactionDisabled || reorderBusy.current || creating.current) return;
+        if (doingFiles.some(file => saveStates.current[file.path] !== 'saved')) {
+            onError('Save or resolve Doing edits before shuffling their contents.');
+            return;
+        }
+        const snapshots = doingFiles.map(file => ({
+            ...file,
+            content: debugFileStates.current[file.path]?.content ?? diskContents[file.path] ?? file.content,
+        }));
+        const requestedDate = day.date;
+        reorderBusy.current = true;
+        pollGeneration.current += 1;
+        setReordering(true);
+        setMoveNotice('Moving Doing contents…');
+        onSaveStateChange('saving');
+        try {
+            const moved = await appAPI.moveDoingContents(day.date,
+                doingFiles[source].streamIndex, doingFiles[destination].streamIndex, snapshots);
+            if (!mounted.current || currentDate.current !== requestedDate) return;
+            setDiskContents(current => mergeSnapshots(current, moved));
+            setDoingFiles(moved);
+            // A file now contains a different work stream. Start fresh undo
+            // histories so Undo cannot resurrect that position's old contents.
+            setContentRevision(current => current + 1);
+            setFocusedPath(doingFiles[destination].path);
+            setEditorFocus(current => ({path: doingFiles[destination].path, revision: current.revision + 1}));
+            setMoveNotice(`Moved contents from stream ${doingFiles[source].streamIndex} to ${doingFiles[destination].streamIndex}.`);
+        } catch (reason) {
+            if (mounted.current && currentDate.current === requestedDate) {
+                setMoveNotice('Contents could not be moved.');
+                onError(errorMessage(reason));
+            }
+        } finally {
+            reorderBusy.current = false;
+            pollGeneration.current += 1;
+            if (mounted.current && currentDate.current === requestedDate) {
+                setReordering(false);
+                onSaveStateChange(aggregateSaveState(paths.map(path => saveStates.current[path] ?? 'saved')));
+            }
+        }
+    };
+
+    const headerDragProps = (file: JournalFile, index: number): HTMLAttributes<HTMLElement> => {
+        const boundaryAt = (event: DragEvent<HTMLElement>) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            return index + (event.clientX >= rect.left + rect.width / 2 ? 1 : 0);
+        };
+        return {
+            draggable: doingFiles.length > 1 && !zoomedPath && !interactionDisabled && !reordering,
+            title: 'Drag to move these contents to another Doing position (save edits first)',
+            className: `file-bar doing-drag-handle${dropBoundary === index ? ' drop-before' : ''}${dropBoundary === doingFiles.length && index === doingFiles.length - 1 ? ' drop-after' : ''}`,
+            onDragStart: event => {
+                if (interactionDisabled || reorderBusy.current || creating.current || zoomedPath
+                    || doingFiles.some(item => saveStates.current[item.path] !== 'saved')) {
+                    event.preventDefault();
+                    onError('Save or resolve Doing edits before shuffling their contents.');
+                    return;
+                }
+                dragSource.current = file.path;
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('application/x-journalist-doing', file.path);
+            },
+            onDragOver: event => {
+                if (!dragSource.current) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+                setDropBoundary(boundaryAt(event));
+            },
+            onDrop: event => {
+                const source = dragSource.current;
+                if (!source) return;
+                event.preventDefault();
+                clearDrag();
+                void moveContents(source, boundaryAt(event));
+            },
+            onDragLeave: () => setDropBoundary(null),
+            onDragEnd: clearDrag,
+        };
+    };
 
     return (
         <main
             className="workspace-shell"
-            {...(interactionDisabled ? {inert: ''} : {})}
+            aria-busy={reordering}
+            {...(interactionDisabled || reordering ? {inert: ''} : {})}
             onKeyDownCapture={event => void recordDebug({
                 category: 'input',
                 action: 'keydown',
@@ -601,6 +702,7 @@ export function DayWorkspace({
                 details: targetDetails(event.target),
             })}
         >
+            <span className="shuffle-status" role="status">{moveNotice}</span>
             <div className="window-drag-region" aria-hidden="true"/>
             <div className="workspace-title-actions">
                 <button type="button" className="shortcut-reference-button"
@@ -640,10 +742,11 @@ export function DayWorkspace({
                     onFocus={() => setFocusedPath(day.todo.path)}
                     shortcutHint={showHints ? paneHint('⌘B', focusedPath === day.todo.path, Boolean(zoomedPath)) : ''}
                 />
-                {doingFiles.length > 0 ? doingFiles.map(file => (
+                {doingFiles.length > 0 ? doingFiles.map((file, index) => (
                     <DoingPane
                         file={file}
-                        key={file.path}
+                        key={`${file.path}:${contentRevision}`}
+                        headerProps={headerDragProps(file, index)}
                         saveRequest={saveRequest}
                         discardRequest={discardRequest}
                         diskContent={diskContents[file.path] ?? file.content}
@@ -741,12 +844,14 @@ function TodoPane({
 }
 
 type DoingPaneProps = DiskAwarePaneProps & {
+    headerProps: HTMLAttributes<HTMLElement>;
     showCompleted: boolean;
     onFocus: () => void;
 };
 
 function DoingPane({
     file,
+    headerProps,
     saveRequest,
     discardRequest,
     diskContent,
@@ -776,6 +881,7 @@ function DoingPane({
     return (
         <article className="journal-pane doing-pane" hidden={hidden}>
             <FileBar
+                headerProps={headerProps}
                 filename={file.name}
                 saveState={journal.saveState}
                 onUseDisk={journal.useDiskVersion}
@@ -795,17 +901,18 @@ function DoingPane({
 }
 
 type FileBarProps = {
+    headerProps?: HTMLAttributes<HTMLElement>;
     filename: string;
     saveState: SaveState;
     onUseDisk: () => void;
     onOverwrite: () => void;
 };
 
-function FileBar({filename, saveState, onUseDisk, onOverwrite}: FileBarProps) {
+function FileBar({filename, saveState, onUseDisk, onOverwrite, headerProps}: FileBarProps) {
     const label = saveStateLabel(saveState);
     return (
         <div className="file-header">
-            <header className="file-bar">
+            <header className="file-bar" {...headerProps}>
                 <span className="filename">{filename}</span>
                 <span
                     className={`save-state ${saveState}`}

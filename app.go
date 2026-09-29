@@ -293,6 +293,8 @@ func (a *App) ChooseStorageDirectory(ctx context.Context) (string, error) {
 
 // ListDays discovers dates represented by either Doing or Todo files.
 func (a *App) ListDays() ([]DaySummary, error) {
+	a.fileMu.Lock()
+	defer a.fileMu.Unlock()
 	settings, err := a.GetSettings()
 	if err != nil {
 		return nil, err
@@ -300,6 +302,11 @@ func (a *App) ListDays() ([]DaySummary, error) {
 	if err := ensureJournalFolders(settings.StorageRoot); err != nil {
 		return nil, err
 	}
+	release, err := beginJournalAccess(settings.StorageRoot)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	days := make(map[string]*DaySummary)
 
@@ -353,6 +360,8 @@ func (a *App) CreateToday() (DayData, error) {
 
 // CreateDay creates the base file set for a validated date.
 func (a *App) CreateDay(date string) (DayData, error) {
+	a.fileMu.Lock()
+	defer a.fileMu.Unlock()
 	if !validDate(date) {
 		return DayData{}, errors.New("date must use YYYY-MM-DD")
 	}
@@ -364,6 +373,11 @@ func (a *App) CreateDay(date string) (DayData, error) {
 	if err := ensureJournalFolders(settings.StorageRoot); err != nil {
 		return DayData{}, err
 	}
+	release, err := beginJournalAccess(settings.StorageRoot)
+	if err != nil {
+		return DayData{}, err
+	}
+	defer release()
 
 	paths := []string{
 		filepath.Join(settings.StorageRoot, "Doing", date+".jm.md"),
@@ -379,7 +393,7 @@ func (a *App) CreateDay(date string) (DayData, error) {
 		}
 	}
 
-	return a.OpenDay(date)
+	return a.openDay(date, settings)
 }
 
 // CreateDoingStream adds the next numbered Doing file for an open day. The
@@ -408,6 +422,11 @@ func (a *App) createDoingStream(date string) (JournalFile, error) {
 	if err := ensureJournalFolders(settings.StorageRoot); err != nil {
 		return JournalFile{}, err
 	}
+	release, err := beginJournalAccess(settings.StorageRoot)
+	if err != nil {
+		return JournalFile{}, err
+	}
+	defer release()
 
 	doingDir := filepath.Join(settings.StorageRoot, "Doing")
 	entries, err := os.ReadDir(doingDir)
@@ -459,8 +478,10 @@ func (a *App) createDoingStream(date string) (JournalFile, error) {
 	}
 }
 
-// OpenDay reads an existing day's plain-text files without changing them.
+// OpenDay reads an existing day after recovering any interrupted shuffle.
 func (a *App) OpenDay(date string) (DayData, error) {
+	a.fileMu.Lock()
+	defer a.fileMu.Unlock()
 	if !validDate(date) {
 		return DayData{}, errors.New("date must use YYYY-MM-DD")
 	}
@@ -473,6 +494,15 @@ func (a *App) OpenDay(date string) (DayData, error) {
 		return DayData{}, err
 	}
 
+	release, err := beginJournalAccess(settings.StorageRoot)
+	if err != nil {
+		return DayData{}, err
+	}
+	defer release()
+	return a.openDay(date, settings)
+}
+
+func (a *App) openDay(date string, settings Settings) (DayData, error) {
 	todoPath := filepath.Join(settings.StorageRoot, "Todo", date+".jmtodo.md")
 	todo, err := readJournalFile(todoPath, 0)
 	if err != nil {
@@ -527,6 +557,14 @@ func (a *App) ReadJournalFiles(paths []string) ([]JournalFile, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := ensureJournalFolders(settings.StorageRoot); err != nil {
+		return nil, err
+	}
+	release, err := beginJournalAccess(settings.StorageRoot)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	files := make([]JournalFile, 0, len(paths))
 	for _, path := range paths {
@@ -554,10 +592,28 @@ func (a *App) SaveFile(path, content, expectedContent string, force bool) (SaveR
 	if err != nil {
 		return SaveResult{}, err
 	}
+	if err := ensureJournalFolders(settings.StorageRoot); err != nil {
+		return SaveResult{}, err
+	}
+	release, err := beginJournalAccess(settings.StorageRoot)
+	if err != nil {
+		return SaveResult{}, err
+	}
+	defer release()
 
 	cleanPath := filepath.Clean(path)
 	if !a.isJournalPath(settings.StorageRoot, cleanPath) {
 		return SaveResult{}, errors.New("refusing to write outside the configured journal folders")
+	}
+
+	if _, err := os.Lstat(cleanPath); err == nil {
+		handle, err := lockDoingFile(cleanPath)
+		if err != nil {
+			return SaveResult{}, err
+		}
+		defer handle.Close()
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return SaveResult{}, err
 	}
 
 	diskData, readErr := os.ReadFile(cleanPath)
@@ -673,6 +729,10 @@ func atomicWriteFile(path string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	if err := temp.Chmod(mode); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Sync(); err != nil {
 		temp.Close()
 		return err
 	}

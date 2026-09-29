@@ -12,6 +12,7 @@ import {
     GetFollowDesktopStatus as nativeGetFollowDesktopStatus,
     GetSettings as nativeGetSettings,
     ListDays as nativeListDays,
+    MoveDoingContents as nativeMoveDoingContents,
     OpenDay as nativeOpenDay,
     OpenDayWindow as nativeOpenDayWindow,
     OpenDebugLogFolder as nativeOpenDebugLogFolder,
@@ -252,6 +253,22 @@ export const appAPI = {
         mockDay.doing.push(file);
         mockDisk.set(file.path, '');
         return new main.JournalFile(file);
+    },
+
+    async moveDoingContents(date: string, from: number, to: number, expected: JournalFile[]): Promise<JournalFile[]> {
+        if (isNative()) return nativeMoveDoingContents(date, from, to, expected);
+        const files = mockDay.doing.map(file => mockFileSnapshot(file.path));
+        if (files.length !== expected.length || files.some((file, index) =>
+            file.path !== expected[index].path || file.content !== expected[index].content || !expected[index].exists)) {
+            throw new Error('Doing files changed; refresh before shuffling.');
+        }
+        const source = files.findIndex(file => file.streamIndex === from);
+        const destination = files.findIndex(file => file.streamIndex === to);
+        if (source < 0 || destination < 0) throw new Error('Choose two existing Doing streams.');
+        const contents = files.map(file => file.content);
+        contents.splice(destination, 0, contents.splice(source, 1)[0]);
+        files.forEach((file, index) => mockDisk.set(file.path, contents[index]));
+        return files.map(file => mockFileSnapshot(file.path));
     },
 
     async readJournalFiles(paths: string[]): Promise<JournalFile[]> {

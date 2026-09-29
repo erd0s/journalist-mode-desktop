@@ -116,7 +116,18 @@ export function ListDays(): $CancellablePromise<$models.DaySummary[]> {
 }
 
 /**
- * OpenDay reads an existing day's plain-text files without changing them.
+ * MoveDoingContents inserts one stream's contents at another fixed position.
+ * Expected contains every visible Doing snapshot; stale or missing files abort
+ * before any write. Filenames, stream numbers and Todo never move.
+ */
+export function MoveDoingContents(date: string, $from: number, to: number, expected: $models.JournalFile[]): $CancellablePromise<$models.JournalFile[]> {
+    return $Call.ByID(4242442749, date, $from, to, expected).then(($result: any) => {
+        return $$createType7($result);
+    });
+}
+
+/**
+ * OpenDay reads an existing day after recovering any interrupted shuffle.
  */
 export function OpenDay(date: string): $CancellablePromise<$models.DayData> {
     return $Call.ByID(474293513, date).then(($result: any) => {
