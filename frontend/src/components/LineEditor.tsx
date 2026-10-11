@@ -341,6 +341,8 @@ function journalKeymap(kind: 'doing' | 'todo', onCopyError: () => void) {
     };
 
     return [
+        {key: 'Backspace', run: (view: EditorView) => exposeClock(view, true)},
+        {key: 'Delete', run: (view: EditorView) => exposeClock(view, false)},
         {key: 'Shift-Enter', run: (view: EditorView) => mutate(view, 'finish')},
         {key: 'Shift-Escape', run: (view: EditorView) => mutate(view, 'cancel')},
         {key: 'Enter', run: (view: EditorView) => mutate(view, 'enter')},
@@ -356,6 +358,29 @@ function journalKeymap(kind: 'doing' | 'todo', onCopyError: () => void) {
             },
         },
     ];
+}
+
+// Atomic cursor ranges also affect CodeMirror deletion. Preserve ordinary
+// single-character deletion at either edge so it exposes the raw timestamp.
+function exposeClock(view: EditorView, backward: boolean): boolean {
+    const selection = view.state.selection;
+    if (view.state.readOnly || selection.ranges.length !== 1 || !selection.main.empty) {
+        return false;
+    }
+    const head = selection.main.head;
+    const from = backward ? Math.max(0, head - 18) : head;
+    const to = backward ? head : Math.min(view.state.doc.length, head + 18);
+    if (!clockEmojiForTimestamp(view.state.doc.sliceString(from, to))) {
+        return false;
+    }
+    const deleted = backward ? head - 1 : head;
+    view.dispatch({
+        changes: {from: deleted, to: deleted + 1},
+        selection: {anchor: deleted},
+        scrollIntoView: true,
+        userEvent: backward ? 'delete.backward' : 'delete.forward',
+    });
+    return true;
 }
 
 function replaceDocument(view: EditorView, lines: string[], focusIndex: number): void {
@@ -382,19 +407,28 @@ function lineEndOffset(lines: string[], index: number): number {
 
 function journalLineView(kind: 'doing' | 'todo', showCompleted: boolean) {
     return ViewPlugin.fromClass(class {
-        decorations: DecorationSet;
+        decorations = Decoration.none;
+        clocks = Decoration.none;
 
         constructor(view: EditorView) {
-            this.decorations = journalDecorations(view, kind, showCompleted);
+            this.decorate(view);
         }
 
         update(update: ViewUpdate) {
             if (update.docChanged || update.viewportChanged) {
-                this.decorations = journalDecorations(update.view, kind, showCompleted);
+                this.decorate(update.view);
             }
+        }
+
+        private decorate(view: EditorView) {
+            this.decorations = journalDecorations(view, kind, showCompleted);
+            this.clocks = this.decorations.update({
+                filter: (_from, _to, value) => value.spec.widget instanceof JournalClockWidget,
+            });
         }
     }, {
         decorations: value => value.decorations,
+        provide: plugin => EditorView.atomicRanges.of(view => view.plugin(plugin)?.clocks ?? Decoration.none),
     });
 }
 
