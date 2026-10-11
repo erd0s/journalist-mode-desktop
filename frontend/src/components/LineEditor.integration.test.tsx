@@ -4,6 +4,7 @@ import {act} from 'react-dom/test-utils';
 import {createRoot, Root} from 'react-dom/client';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {LineEditor} from './LineEditor';
+import {EditorView} from '@codemirror/view';
 
 const timestamped = /^\(\d{4}-\d{2}-\d{2} \d{2}:\d{2}\) /;
 
@@ -37,6 +38,46 @@ describe('mounted Doing editor input', () => {
     afterEach(async () => {
         await act(async () => root.unmount());
         host.remove();
+    });
+
+    it('crosses rendered clocks with one arrow key and retains click-Backspace editing', async () => {
+        const timestamp = '(2026-09-30 12:00)';
+        const text = `before ${timestamp} after`;
+        const onChange = vi.fn();
+        await act(async () => {
+            root.render(<LineEditor kind="doing" lines={[text]} onChange={onChange}/>);
+        });
+        const content = host.querySelector<HTMLElement>('.cm-content')!;
+        const view = EditorView.findFromDOM(content)!;
+        const from = text.indexOf(timestamp);
+        const to = from + timestamp.length;
+        const key = (name: string) => content.dispatchEvent(new KeyboardEvent('keydown', {
+            key: name, bubbles: true, cancelable: true,
+        }));
+        view.dispatch({selection: {anchor: to}});
+        key('ArrowLeft');
+        expect(view.state.selection.main.head).toBe(from);
+        key('ArrowRight');
+        expect(view.state.selection.main.head).toBe(to);
+        expect(view.state.doc.toString()).toBe(text);
+        expect(onChange).not.toHaveBeenCalled();
+
+        host.querySelector<HTMLElement>('.cm-journal-clock')!.dispatchEvent(
+            new MouseEvent('mousedown', {button: 0, bubbles: true, cancelable: true}),
+        );
+        key('Backspace');
+        expect(view.state.doc.toString()).toBe(text.slice(0, to - 1) + text.slice(to));
+        expect(host.querySelector('.cm-journal-clock')).toBeNull();
+        expect(view.state.selection.main.head).toBe(to - 1);
+        key('ArrowLeft');
+        expect(view.state.selection.main.head).toBe(to - 2);
+
+        view.dispatch({changes: {from: to - 1, insert: ')'}, selection: {anchor: to}});
+        key('ArrowLeft');
+        expect(view.state.selection.main.head).toBe(from);
+        key('Delete');
+        expect(view.state.doc.toString()).toBe(text.slice(0, from) + text.slice(from + 1));
+        expect(host.querySelector('.cm-journal-clock')).toBeNull();
     });
 
     it('timestamps keyboard typing after hidden completed history', async () => {
